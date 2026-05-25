@@ -1,0 +1,341 @@
+@import "tailwindcss";
+
+/* =============================================
+   Retro Pixel OS Theme — Pastel Lavender
+   ============================================= */
+
+:root {
+  --bg:       #E9E3FF;
+  --win:      #F8F6FF;
+  --border:   #4A425F;
+  --accent:   #C8B8FF;
+  --accent2:  #FFD6EA;
+  --text:     #2E2A3A;
+  --inactive: #D8D2EA;
+  --white:    #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+  border-radius: 0 !important;
+  font-family: 'Courier New', Courier, monospace;
+}
+
+body {
+  width: 380px;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 11px;
+  cursor: default;
+  user-select: none;
+}
+
+#root { width: 380px; }
+
+/* ── Window ──────────────────────────────── */
+.pixel-window {
+  border: 2px solid var(--border);
+  background: var(--win);
+}
+
+/* ── Title bar ───────────────────────────── */
+.pixel-titlebar {
+  background: linear-gradient(90deg, var(--accent) 0%, #A898E8 100%);
+  border-bottom: 2px solid var(--border);
+  padding: 3px 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pixel-titlebar-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.pixel-titlebar-title {
+  flex: 1;
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.pixel-titlebar-btn {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border);
+  background: var(--inactive);
+  box-shadow: inset -1px -1px 0 var(--border), inset 1px 1px 0 var(--white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  color: var(--text);
+}
+
+.pixel-titlebar-btn:active {
+  box-shadow: inset 1px 1px 0 var(--border), inset -1px -1px 0 var(--white);
+  transform: translate(1px, 1px);
+}
+
+/* ── Background (dot pattern) ────────────── */
+.pixel-bg {
+  background-color: var(--bg);
+  background-image: radial-gradient(circle, #B8A8E844 1px, transparent 1px);
+  background-size: 8px 8px;
+  padding: 10px;
+}
+
+/* ── Panel (group box) ───────────────────── */
+.pixel-panel {
+  border: 1px solid var(--border);
+  background: var(--win);
+  padding: 8px 10px 10px;
+  margin-bottom: 8px;
+  position: relative;
+}
+
+.pixel-panel-title {
+  position: absolute;
+  top: -7px;
+  left: 8px;
+  background: var(--win);
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: bold;
+  color: var(--text);
+  line-height: 14px;
+}
+
+/* ── Label ───────────────────────────────── */
+.pixel-label {
+  display: block;
+  font-size: 11px;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+/* ── Inputs (recessed) ───────────────────── */
+.pixel-input {
+  width: 100%;
+  background: var(--white);
+  border: 1px solid var(--border);
+  box-shadow: inset 1px 1px 0 #8C80A8, inset -1px -1px 0 var(--white);
+  padding: 3px 6px;
+  font-size: 11px;
+  color: var(--text);
+  outline: none;
+  display: block;
+}
+
+.pixel-input:focus {
+  border-color: #6B5FA0;
+  background: #FFFFF8;
+}
+
+.pixel-input::placeholder {
+  color: var(--inactive);
+}
+
+/* ── Buttons (bevel) ─────────────────────── */
+.pixel-btn {
+  background: var(--inactive);
+  border: 1px solid var(--border);
+  box-shadow: inset -1px -1px 0 var(--border), inset 1px 1px 0 var(--white);
+  padding: 4px 14px;
+  font-size: 11px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pixel-btn:hover {
+  background: #E0D8F4;
+}
+
+.pixel-btn:active {
+  box-shadow: inset 1px 1px 0 var(--border), inset -1px -1px 0 var(--white);
+  transform: translate(1px, 1px);
+}
+
+.pixel-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.pixel-btn-primary {
+  background: var(--accent);
+  box-shadow: inset -1px -1px 0 var(--border), inset 1px 1px 0 #E8DCFF;
+}
+
+.pixel-btn-primary:hover {
+  background: #BAA8F8;
+}
+
+.pixel-btn-primary:active {
+  box-shadow: inset 1px 1px 0 var(--border), inset -1px -1px 0 #E8DCFF;
+}
+
+/* ── Messages ────────────────────────────── */
+.pixel-msg {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 11px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.pixel-msg-error   { background: var(--accent2); }
+.pixel-msg-warning { background: #FFF0B8; }
+.pixel-msg-success { background: #C8F0D8; }
+.pixel-msg-info    { background: var(--inactive); }
+
+/* ── Divider ─────────────────────────────── */
+.pixel-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 6px 0;
+}
+
+/* ── Status bar ──────────────────────────── */
+.pixel-statusbar {
+  background: var(--inactive);
+  border-top: 1px solid var(--border);
+  padding: 2px 8px;
+  font-size: 10px;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── Thumbnail frame ─────────────────────── */
+.pixel-thumb {
+  width: 100%;
+  height: 80px;
+  object-fit: cover;
+  display: block;
+  border: 1px solid var(--border);
+  image-rendering: auto;
+  margin-bottom: 8px;
+}
+
+/* ── Checkbox ────────────────────────────── */
+.pixel-checkbox {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--border);
+  background: var(--white);
+  box-shadow: inset 1px 1px 0 #8C80A8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  flex-shrink: 0;
+}
+
+/* ── Tabs ────────────────────────────────── */
+.pixel-tabs {
+  display: flex;
+  background: var(--inactive);
+  border-bottom: 2px solid var(--border);
+  padding: 4px 4px 0;
+  gap: 2px;
+}
+
+.pixel-tab {
+  padding: 3px 7px;
+  font-size: 10px;
+  font-family: 'Courier New', monospace;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  background: #C0B8D8;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pixel-tab:hover { background: #D0C8E8; }
+
+.pixel-tab.active {
+  background: var(--win);
+  font-weight: bold;
+  position: relative;
+  bottom: -2px;
+  padding-bottom: 5px;
+}
+
+/* ── Bookmark list ────────────────────────── */
+.pixel-list {
+  max-height: 310px;
+  overflow-y: auto;
+}
+
+.pixel-list::-webkit-scrollbar { width: 12px; }
+.pixel-list::-webkit-scrollbar-track { background: var(--inactive); border-left: 1px solid var(--border); }
+.pixel-list::-webkit-scrollbar-thumb { background: var(--accent); border: 1px solid var(--border); }
+
+.pixel-bookmark-item {
+  border-bottom: 1px solid var(--border);
+  background: var(--win);
+  padding: 5px 6px;
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  cursor: pointer;
+}
+
+.pixel-bookmark-item:hover { background: #F0ECFF; }
+.pixel-bookmark-item:first-child { border-top: 1px solid var(--border); }
+
+/* ── Color swatches ──────────────────────── */
+.pixel-swatch {
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.pixel-swatch.selected {
+  box-shadow: inset 0 0 0 2px var(--border), inset 0 0 0 3px #fff;
+}
+
+/* ── Spinner (text-based) ────────────────── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+.pixel-blink {
+  animation: blink 0.8s step-start infinite;
+}
+
+/* ── Form row ────────────────────────────── */
+.pixel-row {
+  margin-bottom: 8px;
+}
+
+.pixel-row:last-child {
+  margin-bottom: 0;
+}
+
+/* ── Select override ─────────────────────── */
+select.pixel-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath fill='%234A425F' d='M0 0h8L4 5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 20px;
+  cursor: pointer;
+}

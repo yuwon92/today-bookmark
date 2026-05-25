@@ -1,0 +1,8 @@
+{
+  "name": "bookmark-note",
+  "private": true,
+  "scripts": {
+    "extension:dev": "pnpm --filter extension dev",
+    "extension:build": "pnpm --filter extension build"
+  }
+}
