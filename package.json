@@ -3,6 +3,9 @@
   "private": true,
   "scripts": {
     "extension:dev": "pnpm --filter extension dev",
-    "extension:build": "pnpm --filter extension build"
+    "extension:build": "pnpm --filter extension build",
+    "desktop:dev": "pnpm --filter desktop dev",
+    "desktop:build": "pnpm --filter desktop build",
+    "desktop:dist": "pnpm --filter desktop dist"
   }
 }
