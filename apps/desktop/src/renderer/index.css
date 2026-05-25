@@ -57,6 +57,7 @@ body {
   flex-direction: column;
   overflow: hidden;
   background: var(--bg);
+  position: relative;
 }
 
 .desktop-scroll {
@@ -411,6 +412,56 @@ select.pixel-input {
 @keyframes ticker-scroll {
   0%   { transform: translateX(0); }
   100% { transform: translateX(-50%); }
+}
+
+/* ── Tag chips ───────────────────────────────── */
+.pixel-tag {
+  display: inline-block;
+  background: var(--accent);
+  border: 1px solid var(--border);
+  padding: 0 4px;
+  font-size: 9px;
+  line-height: 14px;
+  cursor: pointer;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.pixel-tag:hover { background: #BAA8F8; }
+
+.pixel-tag.active {
+  background: var(--border);
+  color: var(--white);
+}
+
+/* ── Bookmark Detail overlay ─────────────────── */
+.pixel-detail-overlay {
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  overflow-y: auto;
+}
+
+.pixel-detail-overlay::-webkit-scrollbar { width: 12px; }
+.pixel-detail-overlay::-webkit-scrollbar-track { background: var(--inactive); border-left: 1px solid var(--border); }
+.pixel-detail-overlay::-webkit-scrollbar-thumb { background: var(--accent); border: 1px solid var(--border); }
+
+.pixel-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--inactive);
+  border-bottom: 2px solid var(--border);
+  flex-shrink: 0;
+}
+
+.pixel-detail-section {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
 }
 
 /* ── Status bar ──────────────────────────────── */

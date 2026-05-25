@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { supabase, type Bookmark, type Category, type BookmarkInsert } from '../lib/supabase'
 import { extractPageMeta, type PageMeta } from '../lib/metaParser'
+import { suggestCategoryAndTags } from '../lib/claude'
 import type { User } from '@supabase/supabase-js'
 
 type Tab = 'save' | 'list' | 'favorites' | 'categories'
@@ -68,26 +69,165 @@ function StarBtn({ active, onClick }: { active: boolean; onClick: (e: React.Mous
   )
 }
 
+// ── 북마크 상세 뷰 (확장앱 인라인) ───────────────────────
+function BookmarkDetailView({
+  bookmark, categories, onClose, onSave, onDelete,
+}: {
+  bookmark: Bookmark
+  categories: Category[]
+  onClose: () => void
+  onSave: (changes: Partial<Bookmark>) => Promise<void>
+  onDelete: (b: Bookmark) => void
+}) {
+  const domain = (url: string) => { try { return new URL(url).hostname } catch { return url } }
+  const [title, setTitle] = useState(bookmark.title)
+  const [note, setNote] = useState(bookmark.note)
+  const [categoryId, setCategoryId] = useState(bookmark.category_id ?? '')
+  const [tags, setTags] = useState<string[]>(bookmark.tags)
+  const [tagInput, setTagInput] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const addTag = (raw: string) => {
+    const t = raw.trim().replace(/,+$/, '').trim()
+    if (t && !tags.includes(t)) setTags((prev) => [...prev, t])
+    setTagInput('')
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    await onSave({ title, note, category_id: categoryId || null, tags })
+    setSaving(false)
+    onClose()
+  }
+
+  return (
+    <div className="pixel-bg" style={{ padding: 8 }}>
+      {/* 헤더 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8 }}>
+        <button className="pixel-btn" style={{ padding: '2px 6px', fontSize: 10 }} onClick={onClose}>← 뒤로</button>
+        <span style={{ flex: 1 }} />
+        <button className="pixel-btn pixel-btn-primary" style={{ padding: '2px 6px', fontSize: 10 }}
+          onClick={() => chrome.tabs.create({ url: bookmark.url })}>열기 ↗</button>
+        <button className="pixel-btn" style={{ padding: '2px 6px', fontSize: 10, color: '#8C2020' }}
+          onClick={() => onDelete(bookmark)}>✕</button>
+      </div>
+
+      {/* 썸네일 / 파비콘 */}
+      <div style={{ textAlign: 'center', marginBottom: 8 }}>
+        {bookmark.thumbnail
+          ? <img src={bookmark.thumbnail} alt="" style={{ width: '100%', maxHeight: 80, objectFit: 'cover', border: '1px solid var(--border)' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+          : <img src={`https://www.google.com/s2/favicons?domain=${domain(bookmark.url)}&sz=32`} alt="" style={{ width: 40, height: 40, border: '1px solid var(--border)', background: 'var(--inactive)', padding: 4 }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+        }
+      </div>
+
+      <div className="pixel-panel">
+        <span className="pixel-panel-title">[ Info ]</span>
+        <div className="pixel-row">
+          <label className="pixel-label">제목:</label>
+          <input className="pixel-input" value={title} onChange={(e) => setTitle(e.target.value)} style={{ fontSize: 11 }} />
+        </div>
+        <div style={{ fontSize: 10, color: '#8C80A8', marginBottom: 4, cursor: 'pointer', textDecoration: 'underline' }}
+          onClick={() => chrome.tabs.create({ url: bookmark.url })}>
+          {domain(bookmark.url)}
+        </div>
+      </div>
+
+      <div className="pixel-panel">
+        <span className="pixel-panel-title">[ Classify ]</span>
+        <div className="pixel-row">
+          <label className="pixel-label">카테고리:</label>
+          <select className="pixel-input" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+            <option value="">없음</option>
+            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div className="pixel-row">
+          <label className="pixel-label">태그:</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 4 }}>
+            {tags.map((tag) => (
+              <span key={tag} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: 'var(--accent)', border: '1px solid var(--border)', padding: '0 3px', fontSize: 9, lineHeight: '16px' }}>
+                #{tag}
+                <button onClick={() => setTags((prev) => prev.filter((t) => t !== tag))}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: 9, color: '#4A425F' }}>✕</button>
+              </span>
+            ))}
+          </div>
+          <input className="pixel-input" value={tagInput}
+            onChange={(e) => { const v = e.target.value; if (v.endsWith(',')) { addTag(v); return } setTagInput(v) }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(tagInput) } else if (e.key === 'Backspace' && tagInput === '' && tags.length > 0) { setTags((p) => p.slice(0, -1)) } }}
+            placeholder="태그 입력 후 Enter 또는 ," style={{ fontSize: 10 }} />
+        </div>
+        <div className="pixel-row">
+          <label className="pixel-label">메모:</label>
+          <textarea className="pixel-input" value={note} onChange={(e) => setNote(e.target.value)} rows={3} style={{ resize: 'none', fontSize: 11 }} />
+        </div>
+      </div>
+
+      <button className="pixel-btn pixel-btn-primary" style={{ width: '100%', fontSize: 11 }} onClick={handleSave} disabled={saving}>
+        {saving ? '...' : '[ 저장 ]'}
+      </button>
+    </div>
+  )
+}
+
 // ── 북마크 목록 ────────────────────────────────────────
 function BookmarkListTab({
-  bookmarks, categories, favoritesOnly, onToggleFavorite, onDelete,
+  bookmarks, categories, favoritesOnly, onToggleFavorite, onDelete, onUpdateBookmark,
 }: {
   bookmarks: Bookmark[]
   categories: Category[]
   favoritesOnly: boolean
   onToggleFavorite: (b: Bookmark) => void
   onDelete: (b: Bookmark) => void
+  onUpdateBookmark: (id: string, changes: Partial<Bookmark>) => Promise<void>
 }) {
   const [search, setSearch] = useState('')
+  const [activeTag, setActiveTag] = useState<string | null>(null)
+  const [selectedBookmark, setSelectedBookmark] = useState<Bookmark | null>(null)
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const catMap = Object.fromEntries(categories.map((c) => [c.id, c]))
+
+  const handleItemClick = (b: Bookmark) => {
+    if (clickTimer.current) {
+      clearTimeout(clickTimer.current)
+      clickTimer.current = null
+      chrome.tabs.create({ url: b.url })
+    } else {
+      clickTimer.current = setTimeout(() => {
+        clickTimer.current = null
+        setSelectedBookmark(b)
+      }, 300)
+    }
+  }
+
+  if (selectedBookmark) {
+    return (
+      <BookmarkDetailView
+        bookmark={selectedBookmark}
+        categories={categories}
+        onClose={() => setSelectedBookmark(null)}
+        onSave={async (changes) => { await onUpdateBookmark(selectedBookmark.id, changes) }}
+        onDelete={(b) => { onDelete(b); setSelectedBookmark(null) }}
+      />
+    )
+  }
+
+  const handleTagClick = (tag: string) => {
+    setActiveTag((prev) => (prev === tag ? null : tag))
+  }
 
   const filtered = bookmarks
     .filter((b) => !favoritesOnly || b.is_favorite)
     .filter((b) => {
+      if (activeTag && !b.tags.includes(activeTag)) return false
       if (!search) return true
       const q = search.toLowerCase()
-      return b.title.toLowerCase().includes(q) || b.url.toLowerCase().includes(q)
+      return (
+        b.title.toLowerCase().includes(q) ||
+        b.url.toLowerCase().includes(q) ||
+        b.tags.some((t) => t.toLowerCase().includes(q))
+      )
     })
 
   const domain = (url: string) => { try { return new URL(url).hostname } catch { return url } }
@@ -104,6 +244,21 @@ function BookmarkListTab({
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
+
+      {/* 활성 태그 필터 */}
+      {activeTag && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+          <span style={{ fontSize: 10 }}>🏷</span>
+          <span className="pixel-tag active">#{activeTag}</span>
+          <button
+            onClick={() => setActiveTag(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#8C80A8', padding: '0 2px', fontFamily: 'inherit' }}
+            title="필터 해제"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {filtered.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '20px 0', color: '#8C80A8', fontSize: 11 }}>
@@ -127,8 +282,8 @@ function BookmarkListTab({
                 onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
               />
 
-              {/* 내용 */}
-              <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => chrome.tabs.create({ url: b.url })}>
+              {/* 내용 — 단일클릭: 상세뷰 / 더블클릭: 탭 열기 */}
+              <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => handleItemClick(b)}>
                 <div style={{ fontWeight: 'bold', fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {b.title || domain(b.url)}
                 </div>
@@ -149,6 +304,19 @@ function BookmarkListTab({
                     </span>
                   )}
                 </div>
+                {b.tags.length > 0 && (
+                  <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 3 }}>
+                    {b.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className={`pixel-tag${activeTag === tag ? ' active' : ''}`}
+                        onClick={(e) => { e.stopPropagation(); handleTagClick(tag) }}
+                      >
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* 삭제 */}
@@ -304,8 +472,8 @@ function CategoriesTab({ userId, categories, onRefresh }: {
 }
 
 // ── 저장 폼 ────────────────────────────────────────────
-function SaveTab({ user, categories, onSaved }: {
-  user: User; categories: Category[]; onSaved: () => void
+function SaveTab({ user, categories, bookmarks, onSaved }: {
+  user: User; categories: Category[]; bookmarks: Bookmark[]; onSaved: () => void
 }) {
   const [meta, setMeta] = useState<PageMeta>({ url: '', title: '', description: '', thumbnail: '' })
   const [categoryId, setCategoryId] = useState<string>('')
@@ -314,6 +482,8 @@ function SaveTab({ user, categories, onSaved }: {
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'duplicate' | 'error'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [metaLoading, setMetaLoading] = useState(true)
+  const [aiLoading, setAiLoading] = useState(false)
+  const aiCalledRef = useRef(false)
 
   useEffect(() => {
     chrome.tabs.query({ active: true, currentWindow: true }).then(async ([tab]) => {
@@ -328,6 +498,31 @@ function SaveTab({ user, categories, onSaved }: {
       }
     })
   }, [])
+
+  // AI 추천 — metaLoading 완료 + categories 로드 완료 시점에 실행
+  useEffect(() => {
+    if (metaLoading || categories.length === 0 || aiCalledRef.current) return
+    if (!import.meta.env.VITE_CLAUDE_API_KEY) return
+    aiCalledRef.current = true
+    setAiLoading(true)
+    const allTags = [...new Set(bookmarks.flatMap((b) => b.tags))]
+    suggestCategoryAndTags({
+      title: meta.title,
+      url: meta.url,
+      description: meta.description,
+      existingCategories: categories.map((c) => c.name),
+      existingTags: allTags,
+    }).then((suggestion) => {
+      if (suggestion.category) {
+        const matched = categories.find((c) => c.name === suggestion.category)
+        if (matched) setCategoryId(matched.id)
+      }
+      if (suggestion.tags.length > 0) setTagsInput(suggestion.tags.join(', '))
+      setAiLoading(false)
+    }).catch(() => {
+      setAiLoading(false)
+    })
+  }, [metaLoading, categories.length])
 
   const save = async () => {
     if (!meta.url) return
@@ -385,14 +580,16 @@ function SaveTab({ user, categories, onSaved }: {
         <span className="pixel-panel-title">[ Classify ]</span>
         <div className="pixel-row">
           <label className="pixel-label">Category:</label>
-          <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="pixel-input">
+          <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="pixel-input"
+            disabled={aiLoading} style={{ opacity: aiLoading ? 0.5 : 1 }}>
             <option value="">— None —</option>
             {categories.map((cat) => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
           </select>
         </div>
         <div className="pixel-row">
           <label className="pixel-label">Tags: <span style={{ color: '#8C80A8' }}>(쉼표로 구분)</span></label>
-          <input type="text" value={tagsInput} onChange={(e) => setTagsInput(e.target.value)} className="pixel-input" placeholder="react, design, reference" />
+          <input type="text" value={tagsInput} onChange={(e) => setTagsInput(e.target.value)} className="pixel-input"
+            placeholder="react, design, reference" disabled={aiLoading} style={{ opacity: aiLoading ? 0.5 : 1 }} />
         </div>
         <div className="pixel-row">
           <label className="pixel-label">Note:</label>
@@ -540,6 +737,11 @@ export function Popup() {
     setBookmarks((prev) => prev.filter((x) => x.id !== b.id))
   }
 
+  const updateBookmark = async (id: string, changes: Partial<Bookmark>) => {
+    await supabase.from('bookmarks').update(changes).eq('id', id)
+    setBookmarks((prev) => prev.map((b) => b.id === id ? { ...b, ...changes } : b))
+  }
+
   const logout = async () => {
     await supabase.auth.signOut()
     setUser(null)
@@ -568,7 +770,7 @@ export function Popup() {
   return (
     <PixelWindow tab={tab} setTab={setTab} showTabs={true}>
       {tab === 'save' && (
-        <SaveTab user={user} categories={categories} onSaved={loadData} />
+        <SaveTab user={user} categories={categories} bookmarks={bookmarks} onSaved={loadData} />
       )}
       {(tab === 'list' || tab === 'favorites') && (
         <BookmarkListTab
@@ -577,6 +779,7 @@ export function Popup() {
           favoritesOnly={tab === 'favorites'}
           onToggleFavorite={toggleFavorite}
           onDelete={deleteBookmark}
+          onUpdateBookmark={updateBookmark}
         />
       )}
       {tab === 'categories' && (

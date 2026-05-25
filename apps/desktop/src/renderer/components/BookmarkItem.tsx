@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import type { Bookmark, Category } from '../lib/supabase'
 
 function getDomain(url: string): string {
@@ -7,16 +8,36 @@ function getDomain(url: string): string {
 export function BookmarkItem({
   bookmark,
   category,
+  activeTag,
   onToggleFavorite,
   onDelete,
+  onTagClick,
+  onSelect,
 }: {
   bookmark: Bookmark
   category: Category | undefined
+  activeTag: string | null
   onToggleFavorite: (b: Bookmark) => void
   onDelete: (b: Bookmark) => void
+  onTagClick: (tag: string) => void
+  onSelect: (b: Bookmark) => void
 }) {
   const domain = getDomain(bookmark.url)
   const favicon = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleClick = () => {
+    if (clickTimer.current) {
+      clearTimeout(clickTimer.current)
+      clickTimer.current = null
+      window.electron.openExternal(bookmark.url)
+    } else {
+      clickTimer.current = setTimeout(() => {
+        clickTimer.current = null
+        onSelect(bookmark)
+      }, 300)
+    }
+  }
 
   return (
     <div className="pixel-bookmark-item">
@@ -46,10 +67,10 @@ export function BookmarkItem({
         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
       />
 
-      {/* 내용 — 클릭 시 열기 */}
+      {/* 내용 — 단일클릭: 상세 패널 / 더블클릭: URL 열기 */}
       <div
         style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
-        onClick={() => window.electron.openExternal(bookmark.url)}
+        onClick={handleClick}
       >
         <div style={{
           fontWeight: 'bold', fontSize: 11,
@@ -81,6 +102,19 @@ export function BookmarkItem({
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
             📝 {bookmark.note}
+          </div>
+        )}
+        {bookmark.tags.length > 0 && (
+          <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 3 }}>
+            {bookmark.tags.map((tag) => (
+              <span
+                key={tag}
+                className={`pixel-tag${activeTag === tag ? ' active' : ''}`}
+                onClick={(e) => { e.stopPropagation(); onTagClick(tag) }}
+              >
+                #{tag}
+              </span>
+            ))}
           </div>
         )}
       </div>

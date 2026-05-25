@@ -7,6 +7,7 @@ import { BookmarkList } from './components/BookmarkList'
 import { BookmarkTicker } from './components/BookmarkTicker'
 import { BottomNav, type DesktopTab } from './components/BottomNav'
 import { CategoriesView } from './components/CategoriesView'
+import { BookmarkDetail } from './components/BookmarkDetail'
 
 function pickRandom(bookmarks: Bookmark[]): Bookmark | null {
   if (bookmarks.length === 0) return null
@@ -20,7 +21,9 @@ export function App() {
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [search, setSearch] = useState('')
+  const [activeTag, setActiveTag] = useState<string | null>(null)
   const [bannerBookmark, setBannerBookmark] = useState<Bookmark | null>(null)
+  const [selectedBookmark, setSelectedBookmark] = useState<Bookmark | null>(null)
 
   // 초기 인증 확인
   useEffect(() => {
@@ -45,6 +48,37 @@ export function App() {
   useEffect(() => {
     if (user) loadData()
   }, [user, loadData])
+
+  const updateBookmark = async (id: string, changes: Partial<Bookmark>) => {
+    await supabase.from('bookmarks').update(changes).eq('id', id)
+    setBookmarks((prev) => prev.map((b) => b.id === id ? { ...b, ...changes } : b))
+  }
+
+  // Supabase Realtime 구독
+  useEffect(() => {
+    if (!user) return
+    const channel = supabase
+      .channel('bookmarks-realtime')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'bookmarks',
+        filter: `user_id=eq.${user.id}`,
+      }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setBookmarks((prev) => [payload.new as Bookmark, ...prev])
+          setBannerBookmark((prev) => prev ?? (payload.new as Bookmark))
+        } else if (payload.eventType === 'UPDATE') {
+          setBookmarks((prev) =>
+            prev.map((b) => b.id === payload.new.id ? payload.new as Bookmark : b)
+          )
+        } else if (payload.eventType === 'DELETE') {
+          setBookmarks((prev) => prev.filter((b) => b.id !== (payload.old as Bookmark).id))
+        }
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [user])
 
   const toggleFavorite = async (b: Bookmark) => {
     await supabase.from('bookmarks').update({ is_favorite: !b.is_favorite }).eq('id', b.id)
@@ -138,6 +172,16 @@ export function App() {
 
       {/* 메인 컨텐츠 */}
       <div className="desktop-content">
+        {/* 북마크 상세 패널 오버레이 */}
+        {selectedBookmark && (
+          <BookmarkDetail
+            bookmark={selectedBookmark}
+            categories={categories}
+            onClose={() => setSelectedBookmark(null)}
+            onSave={(changes) => updateBookmark(selectedBookmark.id, changes)}
+            onDelete={(b) => { deleteBookmark(b); setSelectedBookmark(null) }}
+          />
+        )}
         {/* 검색창 (카테고리 탭 제외) */}
         {tab !== 'categories' && (
           <div className="desktop-search-wrap">
@@ -159,8 +203,11 @@ export function App() {
               categories={categories}
               search={search}
               favoritesOnly={false}
+              activeTag={activeTag}
               onToggleFavorite={toggleFavorite}
               onDelete={deleteBookmark}
+              onTagClick={(tag) => setActiveTag((prev) => (prev === tag ? null : tag))}
+              onSelect={setSelectedBookmark}
             />
           )}
           {tab === 'favorites' && (
@@ -169,8 +216,11 @@ export function App() {
               categories={categories}
               search={search}
               favoritesOnly={true}
+              activeTag={activeTag}
               onToggleFavorite={toggleFavorite}
               onDelete={deleteBookmark}
+              onTagClick={(tag) => setActiveTag((prev) => (prev === tag ? null : tag))}
+              onSelect={setSelectedBookmark}
             />
           )}
           {tab === 'categories' && (
@@ -179,13 +229,17 @@ export function App() {
               categories={categories}
               bookmarks={bookmarks}
               onRefresh={loadData}
+              onSelect={setSelectedBookmark}
             />
           )}
         </div>
       </div>
 
       {/* 하단 네비게이션 */}
-      <BottomNav tab={tab} setTab={setTab} />
+      <BottomNav
+        tab={tab}
+        setTab={(t) => { setTab(t); setActiveTag(null); setSearch('') }}
+      />
 
       {/* 지하철 광고 ticker */}
       <BookmarkTicker bookmarks={bookmarks} />

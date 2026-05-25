@@ -42,13 +42,14 @@ pnpm install            # 전체 의존성 설치
 
 | 파일 | 역할 |
 |------|------|
-| `apps/extension/src/popup/Popup.tsx` | 메인 UI — 탭(Save/All/Fav/Cat), 저장폼, 목록, 카테고리 CRUD |
+| `apps/extension/src/popup/Popup.tsx` | 메인 UI — 탭(Save/All/Fav/Cat), 저장폼, 목록, 북마크 상세뷰, 카테고리 CRUD |
 | `apps/extension/src/popup/index.css` | 레트로 픽셀 CSS 테마 전체 |
 | `apps/extension/src/lib/supabase.ts` | Supabase 클라이언트 + 공유 타입 (Bookmark, Category) |
+| `apps/extension/src/lib/claude.ts` | Claude API 호출 — 카테고리/태그 자동 추천 |
 | `apps/extension/src/lib/metaParser.ts` | 페이지 og 메타데이터 추출 함수 (executeScript에 주입) |
 | `apps/extension/src/background/service-worker.ts` | 25분마다 Supabase 세션 갱신 |
 | `apps/extension/manifest.json` | MV3 manifest — 권한, 팝업, 아이콘 경로 |
-| `apps/extension/.env` | Supabase URL + 키 (gitignore됨) |
+| `apps/extension/.env` | Supabase URL + 키 + Claude API 키 (gitignore됨) |
 
 ### 데스크탑 앱
 
@@ -56,11 +57,13 @@ pnpm install            # 전체 의존성 설치
 |------|------|
 | `apps/desktop/src/main/index.ts` | BrowserWindow 생성 (420×860, frame:false) + IPC 핸들러 |
 | `apps/desktop/src/preload/index.ts` | contextBridge — `window.electron.openExternal/minimize/close` |
-| `apps/desktop/src/renderer/App.tsx` | 메인 레이아웃, 상태 관리, 데이터 로드 |
+| `apps/desktop/src/renderer/App.tsx` | 메인 레이아웃, 상태 관리, 데이터 로드, Realtime 구독 |
 | `apps/desktop/src/renderer/lib/supabase.ts` | Supabase 클라이언트 (localStorage 기반 세션) |
 | `apps/desktop/src/renderer/index.css` | 레트로 픽셀 CSS + 데스크탑 전용 클래스 |
 | `apps/desktop/src/renderer/components/RandomBanner.tsx` | 랜덤 북마크 배너 (🔀 재선택) |
 | `apps/desktop/src/renderer/components/BookmarkTicker.tsx` | 하단 ticker — 북마크 제목 흐름, 클릭 시 열기 |
+| `apps/desktop/src/renderer/components/BookmarkDetail.tsx` | 북마크 상세 패널 — 제목/카테고리/태그/메모 인라인 편집 |
+| `apps/desktop/src/renderer/components/BookmarkItem.tsx` | 북마크 목록 행 — 단일클릭: 상세 패널 / 더블클릭: URL 열기 |
 | `apps/desktop/src/renderer/components/CategoriesView.tsx` | 카테고리별 북마크 목록 + 인라인 편집 |
 | `apps/desktop/resources/icon.png` | 앱 아이콘 (256×256 이상 필요, electron-builder용) |
 | `apps/desktop/.env` | Supabase URL + 키 (gitignore됨, 확장앱과 동일 값) |
@@ -139,6 +142,10 @@ bookmarks  (id, user_id, url, title, description, thumbnail,
 | `.pixel-ticker` / `.pixel-ticker-inner` | 데스크탑 하단 ticker (CSS animation) |
 | `.pixel-statusbar` | 하단 상태바 |
 | `.pixel-swatch` | 카테고리 색상 선택 스와치 |
+| `.pixel-tag` / `.pixel-tag.active` | 태그 칩 (클릭 필터링, 활성 시 반전) |
+| `.pixel-detail-overlay` | 북마크 상세 패널 전체 오버레이 |
+| `.pixel-detail-header` | 상세 패널 헤더 (뒤로/열기/삭제 버튼) |
+| `.pixel-detail-section` | 상세 패널 섹션 구분 행 |
 
 컬러: `--bg: #E9E3FF`, `--border: #4A425F`, `--accent: #C8B8FF`, `--text: #2E2A3A`  
 폰트: `Courier New` (모든 요소)  
@@ -152,9 +159,8 @@ bookmarks  (id, user_id, url, title, description, thumbnail,
 [💾 Save] [📋 All] [⭐ Fav] [🗂 Cat]
 ```
 
-- **Save**: 현재 탭 URL 자동 추출, 카테고리/태그/메모 입력 후 저장
-- **All**: 전체 북마크 목록, 검색, 즐겨찾기 토글, 삭제, 클릭시 URL 열기
-- **Fav**: `is_favorite=true` 필터된 목록
+- **Save**: 현재 탭 URL 자동 추출, 카테고리/태그/메모 입력 후 저장. Claude API로 기존 카테고리·태그 기반 자동 추천 (메타 로드 완료 후 자동 실행)
+- **All / Fav**: 북마크 목록. 단일클릭 → 상세 뷰 / 더블클릭 → 탭으로 URL 열기. 태그 칩 클릭으로 필터링
 - **Cat**: 카테고리 CRUD (색상 8가지 프리셋)
 
 ---
@@ -196,17 +202,34 @@ pnpm desktop:dist
 
 ---
 
+## Claude API 연동 (확장앱)
+
+- 모델: `claude-haiku-4-5-20251001` (가장 저렴, 응답 빠름)
+- 호출 시점: Save 탭에서 메타데이터 로드 완료 + categories 로드 완료 동시에
+- 브라우저 직접 호출 시 반드시 `anthropic-dangerous-direct-browser-access: true` 헤더 필요
+- API 키: `apps/extension/.env`에 `VITE_CLAUDE_API_KEY=sk-ant-...` 추가
+- 응답이 마크다운 코드블록(` ```json `)으로 감싸져 올 수 있으므로 파싱 전 제거 필요
+
+## Supabase Realtime 설정
+
+데스크탑 앱이 실시간으로 북마크 변경사항을 수신하려면:
+
+1. Supabase 대시보드 → **Database → Publications**
+2. `supabase_realtime` publication 클릭
+3. `bookmarks` 테이블 토글 ON
+
 ## 향후 작업
 
-- 북마크 수정 기능 (카테고리, 메모를 목록에서 바로 편집)
-- 태그 필터
-- Supabase Realtime 구독 (확장앱 저장 → 데스크탑 즉시 반영)
+- 읽기 상태 관리 (to-read / done)
+- 링크 유효성 검사 (죽은 링크 표시)
 
 ---
 
 ## 주의사항
 
 - `.env` 파일은 gitignore됨 — 클론 후 확장앱/데스크탑 각각 생성 필요
+- 확장앱 `.env`에 `VITE_CLAUDE_API_KEY` 없으면 AI 추천 기능만 비활성화됨 (나머지 정상 동작)
 - 친구 배포 시 친구 Supabase 키로 빌드 후 `dist` 폴더를 zip으로 전달 (확장앱)
 - pnpm v11 사용, `pnpm-workspace.yaml`에 `allowBuilds` 설정 필요 (esbuild, electron, app-builder-bin)
 - 데스크탑 앱 `resources/icon.png`은 256×256px 이상이어야 electron-builder가 정상 동작
+- Supabase Realtime은 대시보드에서 `bookmarks` 테이블 수동 활성화 필요 (Database → Publications)

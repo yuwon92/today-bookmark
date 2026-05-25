@@ -81,6 +81,7 @@ function CategorySection({
   onSaveEdit,
   onCancelEdit,
   onDelete,
+  onSelect,
 }: {
   category: Category | null
   bookmarks: Bookmark[]
@@ -91,6 +92,7 @@ function CategorySection({
   onSaveEdit: (name: string, color: string) => Promise<void>
   onCancelEdit: () => void
   onDelete: () => void
+  onSelect: (b: Bookmark) => void
 }) {
   const isUncategorized = category === null
 
@@ -170,7 +172,7 @@ function CategorySection({
                   padding: '5px 16px', borderTop: '1px solid var(--inactive)',
                   cursor: 'pointer',
                 }}
-                onClick={() => window.electron.openExternal(b.url)}
+                onClick={() => onSelect(b)}
                 onMouseEnter={(e) => (e.currentTarget.style.background = '#EDE8FF')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = '')}
               >
@@ -203,17 +205,17 @@ export function CategoriesView({
   categories,
   bookmarks,
   onRefresh,
+  onSelect,
 }: {
   userId: string
   categories: Category[]
   bookmarks: Bookmark[]
   onRefresh: () => void
+  onSelect: (b: Bookmark) => void
 }) {
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(
-    () => new Set(categories.map((c) => c.id).concat(['uncategorized']))
-  )
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set())
 
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => {
@@ -291,6 +293,7 @@ export function CategoriesView({
           onSaveEdit={(name, color) => saveEdit(cat.id, name, color)}
           onCancelEdit={() => setEditingId(null)}
           onDelete={() => deleteCategory(cat.id)}
+          onSelect={onSelect}
         />
       ))}
 
@@ -305,6 +308,7 @@ export function CategoriesView({
         onSaveEdit={async () => {}}
         onCancelEdit={() => {}}
         onDelete={() => {}}
+        onSelect={onSelect}
       />
     </div>
   )

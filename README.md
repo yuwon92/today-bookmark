@@ -11,13 +11,15 @@
 ## 주요 기능
 
 - 🔖 **링크 저장** — 현재 탭의 URL, 제목, 썸네일(og:image)을 자동으로 가져와 저장 (확장앱)
-- 📋 **북마크 목록** — 저장된 링크를 검색하고 탐색
+- 🤖 **AI 자동 추천** — 저장 시 Claude API가 기존 카테고리·태그 기반으로 자동 추천 (확장앱)
+- 📋 **북마크 목록** — 저장된 링크를 검색하고 탐색, 태그 칩 클릭으로 필터링
+- 🔍 **상세 패널** — 북마크 클릭 시 상세 패널 열림, 제목/카테고리/태그/메모 인라인 수정
 - ⭐ **즐겨찾기** — 자주 보는 북마크 별도 관리
 - 🗂 **카테고리** — 색상과 함께 카테고리 생성/수정/삭제, 카테고리별 북마크 목록
 - 🎲 **오늘의 추천** — 앱 열 때 랜덤 북마크 배너 표시 (데스크탑)
 - 📺 **북마크 ticker** — 하단 지하철 광고처럼 북마크 제목이 흐름 (데스크탑)
+- ⚡ **실시간 동기화** — Supabase Realtime으로 확장앱 저장 시 데스크탑 즉시 반영
 - 🔐 **계정 기반** — 이메일 로그인, 내 데이터만 보임 (RLS 적용)
-- ☁️ **클라우드 동기화** — Supabase 실시간 DB, 두 클라이언트가 같은 데이터 공유
 
 ---
 
@@ -76,7 +78,12 @@ cp apps/desktop/.env.example   apps/desktop/.env
 ```env
 VITE_SUPABASE_URL=https://your-project-id.supabase.co
 VITE_SUPABASE_ANON_KEY=your-publishable-key
+VITE_CLAUDE_API_KEY=sk-ant-...   # 확장앱 전용, AI 추천 기능 (없으면 기능만 비활성)
 ```
+
+5. Supabase Realtime 활성화 (실시간 동기화 사용 시)
+   - Supabase 대시보드 → **Database → Publications**
+   - `supabase_realtime` → `bookmarks` 테이블 토글 ON
 
 ---
 
@@ -98,9 +105,8 @@ pnpm extension:build  # 빌드 → apps/extension/dist/
 [💾 Save] [📋 All] [⭐ Fav] [🗂 Cat]
 ```
 
-- **Save** — 현재 탭 URL 자동 추출, 카테고리/태그/메모 저장
-- **All** — 전체 북마크 검색/탐색
-- **Fav** — 즐겨찾기 목록
+- **Save** — 현재 탭 URL 자동 추출, 카테고리/태그/메모 저장. Claude AI가 기존 카테고리·태그 기반으로 자동 추천
+- **All / Fav** — 북마크 검색/탐색. 단일클릭 → 상세 뷰 / 더블클릭 → 탭으로 열기. 태그 칩 클릭으로 필터링
 - **Cat** — 카테고리 CRUD
 
 ---
@@ -119,7 +125,8 @@ pnpm desktop:dist   # 빌드 + .exe 설치 파일 생성 → apps/desktop/dist/
 
 - **상단** — 커스텀 타이틀바 (드래그 이동, 최소화/닫기)
 - **배너** — 앱 열 때 랜덤 북마크 1개 표시, 🔀 버튼으로 다른 북마크 보기
-- **목록** — 검색 + 북마크 리스트 (클릭 시 브라우저에서 열림)
+- **목록** — 검색 + 북마크 리스트. 단일클릭 → 상세 패널 / 더블클릭 → 브라우저에서 열기
+- **상세 패널** — 제목·카테고리·태그·메모 수정 후 저장. Supabase Realtime으로 즉시 반영
 - **하단 탭** — All / Fav / Cat
 - **ticker** — 저장된 북마크 제목이 옆으로 흐름 (클릭 시 열기)
 
@@ -138,6 +145,7 @@ bookmark-note/
 │   │   ├── src/
 │   │   │   ├── lib/
 │   │   │   │   ├── supabase.ts         # Supabase 클라이언트 + 타입
+│   │   │   │   ├── claude.ts           # Claude API 자동 추천
 │   │   │   │   └── metaParser.ts       # og 메타데이터 추출
 │   │   │   ├── background/
 │   │   │   │   └── service-worker.ts   # 세션 유지 (25분 주기)
@@ -163,7 +171,8 @@ bookmark-note/
 │                   ├── AuthForm.tsx
 │                   ├── RandomBanner.tsx
 │                   ├── BookmarkList.tsx
-│                   ├── BookmarkItem.tsx
+│                   ├── BookmarkItem.tsx    # 단일/더블클릭 분리
+│                   ├── BookmarkDetail.tsx  # 상세 패널 (인라인 편집)
 │                   ├── CategoriesView.tsx
 │                   ├── BottomNav.tsx
 │                   └── BookmarkTicker.tsx
