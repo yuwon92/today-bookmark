@@ -8,10 +8,18 @@ import { BookmarkTicker } from './components/BookmarkTicker'
 import { BottomNav, type DesktopTab } from './components/BottomNav'
 import { CategoriesView } from './components/CategoriesView'
 import { BookmarkDetail } from './components/BookmarkDetail'
+import {
+  pickRandom,
+  loadBookmarksAndCategories,
+  toggleFavorite as sharedToggleFavorite,
+  updateBookmark as sharedUpdateBookmark,
+  deleteBookmarkById,
+} from '@bookmark-note/shared'
 
-function pickRandom(bookmarks: Bookmark[]): Bookmark | null {
-  if (bookmarks.length === 0) return null
-  return bookmarks[Math.floor(Math.random() * bookmarks.length)]
+const RANDOM_ROTATE_MS = 30_000
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
 }
 
 export function App() {
@@ -34,31 +42,56 @@ export function App() {
   }, [])
 
   const loadData = useCallback(async () => {
-    const [bRes, cRes] = await Promise.all([
-      supabase.from('bookmarks').select('*').order('date_saved', { ascending: false }),
-      supabase.from('categories').select('*').order('name'),
-    ])
-    if (bRes.data) {
-      setBookmarks(bRes.data)
-      setBannerBookmark((prev) => prev ?? pickRandom(bRes.data!))
+    try {
+      const { bookmarks: bData, categories: cData } = await loadBookmarksAndCategories(supabase)
+      setBookmarks(bData)
+      setBannerBookmark((prev) => prev ?? pickRandom(bData))
+      setCategories(cData)
+    } catch (err) {
+      alert(`데이터 로드 실패: ${err instanceof Error ? err.message : '오류'}`)
     }
-    if (cRes.data) setCategories(cRes.data)
   }, [])
 
   useEffect(() => {
     if (user) loadData()
   }, [user, loadData])
 
+  const rerollBanner = useCallback(() => {
+    setBannerBookmark((prev) => pickRandom(bookmarks, prev?.id))
+  }, [bookmarks])
+
+  useEffect(() => {
+    if (bookmarks.length < 2) return
+    const timer = window.setInterval(rerollBanner, RANDOM_ROTATE_MS)
+    return () => window.clearInterval(timer)
+  }, [bookmarks.length, rerollBanner])
+
+  useEffect(() => {
+    if (!selectedBookmark) return
+    const latest = bookmarks.find((b) => b.id === selectedBookmark.id)
+    if (!latest) {
+      setSelectedBookmark(null)
+      return
+    }
+    if (latest !== selectedBookmark) setSelectedBookmark(latest)
+  }, [bookmarks, selectedBookmark])
+
   const updateBookmark = async (id: string, changes: Partial<Bookmark>) => {
-    await supabase.from('bookmarks').update(changes).eq('id', id)
-    setBookmarks((prev) => prev.map((b) => b.id === id ? { ...b, ...changes } : b))
+    try {
+      await sharedUpdateBookmark(supabase, id, changes)
+      setBookmarks((prev) => prev.map((b) => b.id === id ? { ...b, ...changes } : b))
+      setBannerBookmark((prev) => prev?.id === id ? { ...prev, ...changes } : prev)
+    } catch (error) {
+      alert(`북마크 저장 실패: ${error instanceof Error ? error.message : '오류'}`)
+      throw error
+    }
   }
 
   // Supabase Realtime 구독
   useEffect(() => {
     if (!user) return
     const channel = supabase
-      .channel('bookmarks-realtime')
+      .channel(`desktop-realtime-${user.id}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -72,8 +105,35 @@ export function App() {
           setBookmarks((prev) =>
             prev.map((b) => b.id === payload.new.id ? payload.new as Bookmark : b)
           )
+          setBannerBookmark((prev) =>
+            prev?.id === payload.new.id ? payload.new as Bookmark : prev
+          )
         } else if (payload.eventType === 'DELETE') {
           setBookmarks((prev) => prev.filter((b) => b.id !== (payload.old as Bookmark).id))
+          setBannerBookmark((prev) =>
+            prev?.id === (payload.old as Bookmark).id ? null : prev
+          )
+        }
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'categories',
+        filter: `user_id=eq.${user.id}`,
+      }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setCategories((prev) => {
+            if (prev.some((c) => c.id === payload.new.id)) return prev
+            return [...prev, payload.new as Category].sort((a, b) => a.name.localeCompare(b.name))
+          })
+        } else if (payload.eventType === 'UPDATE') {
+          setCategories((prev) =>
+            prev
+              .map((c) => c.id === payload.new.id ? payload.new as Category : c)
+              .sort((a, b) => a.name.localeCompare(b.name))
+          )
+        } else if (payload.eventType === 'DELETE') {
+          setCategories((prev) => prev.filter((c) => c.id !== (payload.old as Category).id))
         }
       })
       .subscribe()
@@ -81,25 +141,38 @@ export function App() {
   }, [user])
 
   const toggleFavorite = async (b: Bookmark) => {
-    await supabase.from('bookmarks').update({ is_favorite: !b.is_favorite }).eq('id', b.id)
-    setBookmarks((prev) =>
-      prev.map((x) => x.id === b.id ? { ...x, is_favorite: !b.is_favorite } : x)
-    )
+    try {
+      await sharedToggleFavorite(supabase, b)
+      const nextFavorite = !b.is_favorite
+      setBookmarks((prev) =>
+        prev.map((x) => x.id === b.id ? { ...x, is_favorite: nextFavorite } : x)
+      )
+      setBannerBookmark((prev) => prev?.id === b.id ? { ...prev, is_favorite: nextFavorite } : prev)
+    } catch (error) {
+      alert(`즐겨찾기 변경 실패: ${error instanceof Error ? error.message : '오류'}`)
+    }
   }
 
   const deleteBookmark = async (b: Bookmark) => {
     if (!confirm(`"${b.title || b.url}" 을 삭제하시겠습니까?`)) return
-    await supabase.from('bookmarks').delete().eq('id', b.id)
-    setBookmarks((prev) => {
-      const next = prev.filter((x) => x.id !== b.id)
-      // 배너가 삭제된 북마크이면 교체
-      if (bannerBookmark?.id === b.id) setBannerBookmark(pickRandom(next))
-      return next
-    })
+    try {
+      await deleteBookmarkById(supabase, b.id)
+      setBookmarks((prev) => {
+        const next = prev.filter((x) => x.id !== b.id)
+        if (bannerBookmark?.id === b.id) setBannerBookmark(pickRandom(next))
+        return next
+      })
+    } catch (error) {
+      alert(`북마크 삭제 실패: ${error instanceof Error ? error.message : '오류'}`)
+    }
   }
 
   const logout = async () => {
-    await supabase.auth.signOut()
+    const { error } = await supabase.auth.signOut()
+    if (error) {
+      alert(`로그아웃 실패: ${getErrorMessage(error)}`)
+      return
+    }
     setUser(null)
     setBookmarks([])
     setCategories([])
@@ -159,6 +232,17 @@ export function App() {
           >
             logout
           </button>
+          <button
+            onClick={() => window.electron.openWidget()}
+            style={{
+              background: 'none', border: '1px solid var(--border)', cursor: 'pointer',
+              fontSize: 8, color: '#5A527A', fontFamily: 'inherit',
+              padding: '1px 4px', lineHeight: 1,
+            }}
+            title="위젯 창 열기"
+          >
+            widget
+          </button>
           <button className="pixel-titlebar-btn" onClick={() => window.electron.minimize()}>_</button>
           <button className="pixel-titlebar-btn" onClick={() => window.electron.close()}>×</button>
         </div>
@@ -167,7 +251,8 @@ export function App() {
       {/* 랜덤 배너 */}
       <RandomBanner
         bookmark={bannerBookmark}
-        onReroll={() => setBannerBookmark(pickRandom(bookmarks))}
+        categories={categories}
+        onReroll={rerollBanner}
       />
 
       {/* 메인 컨텐츠 */}

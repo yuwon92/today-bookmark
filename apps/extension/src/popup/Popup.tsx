@@ -2,14 +2,23 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { supabase, type Bookmark, type Category, type BookmarkInsert } from '../lib/supabase'
 import { extractPageMeta, type PageMeta } from '../lib/metaParser'
 import { suggestCategoryAndTags } from '../lib/claude'
+import { isXUrl, fetchJinaContent } from '../lib/jinaReader'
 import type { User } from '@supabase/supabase-js'
+import {
+  PRESET_COLORS,
+  getDomain,
+  parseTag,
+  filterBookmarks,
+  loadBookmarksAndCategories,
+  toggleFavorite as sharedToggleFavorite,
+  updateBookmark as sharedUpdateBookmark,
+  deleteBookmarkById,
+  insertCategory,
+  updateCategory,
+  deleteCategoryById,
+} from '@bookmark-note/shared'
 
 type Tab = 'save' | 'list' | 'favorites' | 'categories'
-
-const PRESET_COLORS = [
-  '#C8B8FF', '#FFD6EA', '#B8E8C8', '#FFE8B8',
-  '#B8D8F8', '#F8C8B8', '#D8B8F8', '#C8D8B8',
-]
 
 // ── 공통: 픽셀 창 프레임 ───────────────────────────────
 function PixelWindow({
@@ -79,7 +88,6 @@ function BookmarkDetailView({
   onSave: (changes: Partial<Bookmark>) => Promise<void>
   onDelete: (b: Bookmark) => void
 }) {
-  const domain = (url: string) => { try { return new URL(url).hostname } catch { return url } }
   const [title, setTitle] = useState(bookmark.title)
   const [note, setNote] = useState(bookmark.note)
   const [categoryId, setCategoryId] = useState(bookmark.category_id ?? '')
@@ -88,7 +96,7 @@ function BookmarkDetailView({
   const [saving, setSaving] = useState(false)
 
   const addTag = (raw: string) => {
-    const t = raw.trim().replace(/,+$/, '').trim()
+    const t = parseTag(raw)
     if (t && !tags.includes(t)) setTags((prev) => [...prev, t])
     setTagInput('')
   }
@@ -116,7 +124,7 @@ function BookmarkDetailView({
       <div style={{ textAlign: 'center', marginBottom: 8 }}>
         {bookmark.thumbnail
           ? <img src={bookmark.thumbnail} alt="" style={{ width: '100%', maxHeight: 80, objectFit: 'cover', border: '1px solid var(--border)' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-          : <img src={`https://www.google.com/s2/favicons?domain=${domain(bookmark.url)}&sz=32`} alt="" style={{ width: 40, height: 40, border: '1px solid var(--border)', background: 'var(--inactive)', padding: 4 }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+          : <img src={`https://www.google.com/s2/favicons?domain=${getDomain(bookmark.url)}&sz=32`} alt="" style={{ width: 40, height: 40, border: '1px solid var(--border)', background: 'var(--inactive)', padding: 4 }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
         }
       </div>
 
@@ -128,7 +136,7 @@ function BookmarkDetailView({
         </div>
         <div style={{ fontSize: 10, color: '#8C80A8', marginBottom: 4, cursor: 'pointer', textDecoration: 'underline' }}
           onClick={() => chrome.tabs.create({ url: bookmark.url })}>
-          {domain(bookmark.url)}
+          {getDomain(bookmark.url)}
         </div>
       </div>
 
@@ -217,20 +225,7 @@ function BookmarkListTab({
     setActiveTag((prev) => (prev === tag ? null : tag))
   }
 
-  const filtered = bookmarks
-    .filter((b) => !favoritesOnly || b.is_favorite)
-    .filter((b) => {
-      if (activeTag && !b.tags.includes(activeTag)) return false
-      if (!search) return true
-      const q = search.toLowerCase()
-      return (
-        b.title.toLowerCase().includes(q) ||
-        b.url.toLowerCase().includes(q) ||
-        b.tags.some((t) => t.toLowerCase().includes(q))
-      )
-    })
-
-  const domain = (url: string) => { try { return new URL(url).hostname } catch { return url } }
+  const filtered = filterBookmarks(bookmarks, { search, favoritesOnly, activeTag })
 
   return (
     <div className="pixel-bg" style={{ padding: 8 }}>
@@ -276,7 +271,7 @@ function BookmarkListTab({
 
               {/* 썸네일 */}
               <img
-                src={b.thumbnail || `https://www.google.com/s2/favicons?domain=${domain(b.url)}&sz=16`}
+                src={b.thumbnail || `https://www.google.com/s2/favicons?domain=${getDomain(b.url)}&sz=16`}
                 alt=""
                 style={{ width: 16, height: 16, objectFit: 'cover', flexShrink: 0, marginTop: 1, border: '1px solid var(--border)' }}
                 onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
@@ -285,11 +280,11 @@ function BookmarkListTab({
               {/* 내용 — 단일클릭: 상세뷰 / 더블클릭: 탭 열기 */}
               <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => handleItemClick(b)}>
                 <div style={{ fontWeight: 'bold', fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {b.title || domain(b.url)}
+                  {b.title || getDomain(b.url)}
                 </div>
                 <div style={{ fontSize: 10, color: '#8C80A8', display: 'flex', gap: 4, alignItems: 'center', marginTop: 1 }}>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>
-                    {domain(b.url)}
+                    {getDomain(b.url)}
                   </span>
                   {b.category_id && catMap[b.category_id] && (
                     <span style={{
@@ -348,38 +343,55 @@ function CategoriesTab({ userId, categories, onRefresh }: {
 }) {
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState(PRESET_COLORS[0])
+  const [newDescription, setNewDescription] = useState('')
   const [editId, setEditId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editColor, setEditColor] = useState('')
+  const [editDescription, setEditDescription] = useState('')
   const [saving, setSaving] = useState(false)
 
   const addCategory = async () => {
     if (!newName.trim()) return
     setSaving(true)
-    await supabase.from('categories').insert({ user_id: userId, name: newName.trim(), color: newColor })
-    setNewName('')
-    setNewColor(PRESET_COLORS[0])
-    onRefresh()
-    setSaving(false)
+    try {
+      await insertCategory(supabase, userId, newName.trim(), newColor, newDescription.trim())
+      setNewName('')
+      setNewColor(PRESET_COLORS[0])
+      setNewDescription('')
+      onRefresh()
+    } catch (err) {
+      alert(`카테고리 추가 실패: ${err instanceof Error ? err.message : '오류'}`)
+    } finally {
+      setSaving(false)
+    }
   }
 
   const startEdit = (cat: Category) => {
     setEditId(cat.id)
     setEditName(cat.name)
     setEditColor(cat.color)
+    setEditDescription(cat.description ?? '')
   }
 
   const saveEdit = async () => {
     if (!editId || !editName.trim()) return
-    await supabase.from('categories').update({ name: editName.trim(), color: editColor }).eq('id', editId)
-    setEditId(null)
-    onRefresh()
+    try {
+      await updateCategory(supabase, editId, editName.trim(), editColor, editDescription.trim())
+      setEditId(null)
+      onRefresh()
+    } catch (err) {
+      alert(`카테고리 저장 실패: ${err instanceof Error ? err.message : '오류'}`)
+    }
   }
 
   const deleteCategory = async (id: string) => {
     if (!confirm('카테고리를 삭제하면 해당 북마크의 카테고리가 없어집니다.')) return
-    await supabase.from('categories').delete().eq('id', id)
-    onRefresh()
+    try {
+      await deleteCategoryById(supabase, id)
+      onRefresh()
+    } catch (err) {
+      alert(`카테고리 삭제 실패: ${err instanceof Error ? err.message : '오류'}`)
+    }
   }
 
   return (
@@ -402,6 +414,14 @@ function CategoriesTab({ userId, categories, onRefresh }: {
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && saveEdit()}
+                    placeholder="카테고리 이름"
+                  />
+                  <input
+                    className="pixel-input"
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && saveEdit()}
+                    placeholder="설명 (AI 추천에 사용됨)"
                   />
                   <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
                     {PRESET_COLORS.map((c) => (
@@ -446,6 +466,16 @@ function CategoriesTab({ userId, categories, onRefresh }: {
           />
         </div>
         <div className="pixel-row">
+          <label className="pixel-label">Desc:</label>
+          <input
+            className="pixel-input"
+            value={newDescription}
+            onChange={(e) => setNewDescription(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addCategory()}
+            placeholder="어떤 링크가 들어가나요? (AI 추천용)"
+          />
+        </div>
+        <div className="pixel-row">
           <label className="pixel-label">Color:</label>
           <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
             {PRESET_COLORS.map((c) => (
@@ -475,7 +505,10 @@ function CategoriesTab({ userId, categories, onRefresh }: {
 function SaveTab({ user, categories, bookmarks, onSaved }: {
   user: User; categories: Category[]; bookmarks: Bookmark[]; onSaved: () => void
 }) {
-  const [meta, setMeta] = useState<PageMeta>({ url: '', title: '', description: '', thumbnail: '' })
+  const [meta, setMeta] = useState<PageMeta>({
+    url: '', title: '', description: '', thumbnail: '',
+    siteName: '', keywords: [], bodyExcerpt: '',
+  })
   const [categoryId, setCategoryId] = useState<string>('')
   const [note, setNote] = useState('')
   const [tagsInput, setTagsInput] = useState('')
@@ -488,14 +521,25 @@ function SaveTab({ user, categories, bookmarks, onSaved }: {
   useEffect(() => {
     chrome.tabs.query({ active: true, currentWindow: true }).then(async ([tab]) => {
       if (!tab.id) { setMetaLoading(false); return }
+      let extracted: PageMeta = {
+        url: tab.url ?? '', title: tab.title ?? '', description: '', thumbnail: '',
+        siteName: '', keywords: [], bodyExcerpt: '',
+      }
       try {
         const results = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: extractPageMeta })
-        if (results[0]?.result) setMeta(results[0].result)
+        if (results[0]?.result) extracted = results[0].result
       } catch {
-        setMeta({ url: tab.url ?? '', title: tab.title ?? '', description: '', thumbnail: '' })
-      } finally {
-        setMetaLoading(false)
+        // fallback: tab.url/title만 사용
       }
+
+      // X(트위터) 링크는 SPA라 본문이 안 잡힘 → Jina Reader로 본문 가져오기
+      if (extracted.url && isXUrl(extracted.url)) {
+        const jinaText = await fetchJinaContent(extracted.url)
+        if (jinaText) extracted = { ...extracted, bodyExcerpt: jinaText }
+      }
+
+      setMeta(extracted)
+      setMetaLoading(false)
     })
   }, [])
 
@@ -505,13 +549,34 @@ function SaveTab({ user, categories, bookmarks, onSaved }: {
     if (!import.meta.env.VITE_CLAUDE_API_KEY) return
     aiCalledRef.current = true
     setAiLoading(true)
-    const allTags = [...new Set(bookmarks.flatMap((b) => b.tags))]
+
+    // 태그 빈도 정렬
+    const tagCount = new Map<string, number>()
+    for (const b of bookmarks) {
+      for (const t of b.tags) tagCount.set(t, (tagCount.get(t) ?? 0) + 1)
+    }
+    const tagPool = Array.from(tagCount.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([t]) => t)
+
+    // few-shot 예시: 카테고리가 분류된 최근 북마크만 사용 (null 예시가 들어가면
+    // 모델이 null을 따라가는 경향이 강해짐)
+    const catNameById = new Map(categories.map((c) => [c.id, c.name]))
+    const recentExamples = bookmarks
+      .filter((b) => b.category_id && catNameById.has(b.category_id))
+      .slice(0, 5)
+      .map((b) => ({
+        title: b.title,
+        url: b.url,
+        category: catNameById.get(b.category_id!) ?? null,
+        tags: b.tags,
+      }))
+
     suggestCategoryAndTags({
-      title: meta.title,
-      url: meta.url,
-      description: meta.description,
-      existingCategories: categories.map((c) => c.name),
-      existingTags: allTags,
+      meta,
+      categories: categories.map((c) => ({ name: c.name, description: c.description })),
+      tagPool,
+      recentExamples,
     }).then((suggestion) => {
       if (suggestion.category) {
         const matched = categories.find((c) => c.name === suggestion.category)
@@ -714,12 +779,13 @@ export function Popup() {
   }, [])
 
   const loadData = useCallback(async () => {
-    const [bRes, cRes] = await Promise.all([
-      supabase.from('bookmarks').select('*').order('date_saved', { ascending: false }),
-      supabase.from('categories').select('*').order('name'),
-    ])
-    if (bRes.data) setBookmarks(bRes.data)
-    if (cRes.data) setCategories(cRes.data)
+    try {
+      const { bookmarks: bData, categories: cData } = await loadBookmarksAndCategories(supabase)
+      setBookmarks(bData)
+      setCategories(cData)
+    } catch (err) {
+      alert(`데이터 로드 실패: ${err instanceof Error ? err.message : '오류'}`)
+    }
   }, [])
 
   useEffect(() => {
@@ -727,19 +793,32 @@ export function Popup() {
   }, [user, loadData])
 
   const toggleFavorite = async (b: Bookmark) => {
-    await supabase.from('bookmarks').update({ is_favorite: !b.is_favorite }).eq('id', b.id)
-    setBookmarks((prev) => prev.map((x) => x.id === b.id ? { ...x, is_favorite: !b.is_favorite } : x))
+    try {
+      await sharedToggleFavorite(supabase, b)
+      setBookmarks((prev) => prev.map((x) => x.id === b.id ? { ...x, is_favorite: !b.is_favorite } : x))
+    } catch (err) {
+      alert(`즐겨찾기 변경 실패: ${err instanceof Error ? err.message : '오류'}`)
+    }
   }
 
   const deleteBookmark = async (b: Bookmark) => {
     if (!confirm(`"${b.title || b.url}" 을 삭제하시겠습니까?`)) return
-    await supabase.from('bookmarks').delete().eq('id', b.id)
-    setBookmarks((prev) => prev.filter((x) => x.id !== b.id))
+    try {
+      await deleteBookmarkById(supabase, b.id)
+      setBookmarks((prev) => prev.filter((x) => x.id !== b.id))
+    } catch (err) {
+      alert(`북마크 삭제 실패: ${err instanceof Error ? err.message : '오류'}`)
+    }
   }
 
   const updateBookmark = async (id: string, changes: Partial<Bookmark>) => {
-    await supabase.from('bookmarks').update(changes).eq('id', id)
-    setBookmarks((prev) => prev.map((b) => b.id === id ? { ...b, ...changes } : b))
+    try {
+      await sharedUpdateBookmark(supabase, id, changes)
+      setBookmarks((prev) => prev.map((b) => b.id === id ? { ...b, ...changes } : b))
+    } catch (err) {
+      alert(`북마크 저장 실패: ${err instanceof Error ? err.message : '오류'}`)
+      throw err
+    }
   }
 
   const logout = async () => {

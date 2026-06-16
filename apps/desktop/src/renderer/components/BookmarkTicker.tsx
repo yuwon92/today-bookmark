@@ -12,7 +12,7 @@ export function BookmarkTicker({ bookmarks }: { bookmarks: Bookmark[] }) {
     return [...bookmarks]
       .sort(() => Math.random() - 0.5)
       .slice(0, 20)
-  }, [bookmarks.length > 0]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [bookmarks])
 
   if (shuffled.length === 0) return null
 

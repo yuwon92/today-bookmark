@@ -1,9 +1,6 @@
 import { useRef, useState } from 'react'
 import type { Bookmark, Category } from '../lib/supabase'
-
-function getDomain(url: string): string {
-  try { return new URL(url).hostname } catch { return url }
-}
+import { getDomain, parseTag } from '@bookmark-note/shared'
 
 export function BookmarkDetail({
   bookmark,
@@ -29,7 +26,7 @@ export function BookmarkDetail({
   const favicon = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`
 
   const addTag = (raw: string) => {
-    const trimmed = raw.trim().replace(/,+$/, '').trim()
+    const trimmed = parseTag(raw)
     if (trimmed && !tags.includes(trimmed)) {
       setTags((prev) => [...prev, trimmed])
     }
@@ -47,14 +44,17 @@ export function BookmarkDetail({
 
   const handleSave = async () => {
     setSaving(true)
-    await onSave({
-      title,
-      note,
-      category_id: categoryId || null,
-      tags,
-    })
-    setSaving(false)
-    onClose()
+    try {
+      await onSave({
+        title,
+        note,
+        category_id: categoryId || null,
+        tags,
+      })
+      onClose()
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (

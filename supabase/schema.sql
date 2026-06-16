@@ -5,11 +5,12 @@
 
 -- 사용자 정의 카테고리
 CREATE TABLE categories (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id    UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  name       TEXT NOT NULL,
-  color      TEXT NOT NULL DEFAULT '#6366f1',
-  created_at TIMESTAMPTZ DEFAULT NOW(),
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  color       TEXT NOT NULL DEFAULT '#6366f1',
+  description TEXT DEFAULT '',
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, name)
 );
 
@@ -24,6 +25,7 @@ CREATE TABLE bookmarks (
   category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
   note        TEXT DEFAULT '',
   tags        TEXT[] DEFAULT '{}',
+  is_favorite BOOLEAN DEFAULT FALSE,
   date_saved  TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, url)
 );
@@ -45,3 +47,8 @@ CREATE INDEX idx_bookmarks_category  ON bookmarks(category_id);
 -- Realtime 활성화 (데스크탑 앱 연동용)
 ALTER PUBLICATION supabase_realtime ADD TABLE bookmarks;
 ALTER PUBLICATION supabase_realtime ADD TABLE categories;
+
+-- =============================================
+-- 마이그레이션 (기존 DB에 적용)
+-- =============================================
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS description TEXT DEFAULT '';

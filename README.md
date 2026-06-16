@@ -11,7 +11,8 @@
 ## 주요 기능
 
 - 🔖 **링크 저장** — 현재 탭의 URL, 제목, 썸네일(og:image)을 자동으로 가져와 저장 (확장앱)
-- 🤖 **AI 자동 추천** — 저장 시 Claude API가 기존 카테고리·태그 기반으로 자동 추천 (확장앱)
+- 🤖 **AI 자동 추천** — 저장 시 Claude API가 페이지 본문/키워드 + **카테고리 설명** + **최근 분류 이력(few-shot)** 을 활용해 카테고리·태그 자동 추천 (확장앱)
+- 🐦 **X(트위터) 본문 추출** — X는 SPA라 in-page 추출이 안 되므로 [Jina Reader](https://jina.ai/reader/)로 우회해 실제 트윗 텍스트를 가져와 AI 추천에 활용
 - 📋 **북마크 목록** — 저장된 링크를 검색하고 탐색, 태그 칩 클릭으로 필터링
 - 🔍 **상세 패널** — 북마크 클릭 시 상세 패널 열림, 제목/카테고리/태그/메모 인라인 수정
 - ⭐ **즐겨찾기** — 자주 보는 북마크 별도 관리
@@ -67,23 +68,37 @@ pnpm install
 
 1. [supabase.com](https://supabase.com)에서 새 프로젝트 생성
 2. **SQL Editor**에서 `supabase/schema.sql` 실행
-3. **Authentication > Providers > Email** → `Confirm email` OFF
-4. `.env.example`을 복사해 `.env` 생성 (확장앱 / 데스크탑 각각)
+3. 생성되는 주요 테이블/컬럼 확인
+   - `categories`: `id`, `user_id`, `name`, `color`, `description`, `created_at`
+   - `bookmarks`: `id`, `user_id`, `url`, `title`, `description`, `thumbnail`, `category_id`, `note`, `tags`, `is_favorite`, `date_saved`
+   - 기존 DB에서 업그레이드 시: `ALTER TABLE categories ADD COLUMN IF NOT EXISTS description TEXT DEFAULT '';`
+4. **Authentication > Providers > Email** → `Confirm email` OFF
+5. `.env.example`을 복사해 `.env` 생성 (확장앱 / 데스크탑 각각)
 
 ```bash
 cp apps/extension/.env.example apps/extension/.env
 cp apps/desktop/.env.example   apps/desktop/.env
 ```
 
+확장앱 `apps/extension/.env`:
+
 ```env
 VITE_SUPABASE_URL=https://your-project-id.supabase.co
 VITE_SUPABASE_ANON_KEY=your-publishable-key
 VITE_CLAUDE_API_KEY=sk-ant-...   # 확장앱 전용, AI 추천 기능 (없으면 기능만 비활성)
+VITE_JINA_API_KEY=jina_...       # 선택 — X(트위터) 본문 추출. 없어도 무료 티어로 동작
 ```
 
-5. Supabase Realtime 활성화 (실시간 동기화 사용 시)
+데스크탑 앱 `apps/desktop/.env`:
+
+```env
+VITE_SUPABASE_URL=https://your-project-id.supabase.co
+VITE_SUPABASE_ANON_KEY=your-publishable-key
+```
+
+6. Supabase Realtime 활성화 (실시간 동기화 사용 시)
    - Supabase 대시보드 → **Database → Publications**
-   - `supabase_realtime` → `bookmarks` 테이블 토글 ON
+   - `supabase_realtime` → `bookmarks`, `categories` 테이블 토글 ON
 
 ---
 
@@ -105,9 +120,9 @@ pnpm extension:build  # 빌드 → apps/extension/dist/
 [💾 Save] [📋 All] [⭐ Fav] [🗂 Cat]
 ```
 
-- **Save** — 현재 탭 URL 자동 추출, 카테고리/태그/메모 저장. Claude AI가 기존 카테고리·태그 기반으로 자동 추천
+- **Save** — 현재 탭 URL 자동 추출, 카테고리/태그/메모 저장. Claude AI가 페이지 본문·키워드 + 카테고리 설명 + 최근 분류 이력(few-shot)을 바탕으로 자동 추천. X 링크는 Jina Reader로 본문 우회 추출
 - **All / Fav** — 북마크 검색/탐색. 단일클릭 → 상세 뷰 / 더블클릭 → 탭으로 열기. 태그 칩 클릭으로 필터링
-- **Cat** — 카테고리 CRUD
+- **Cat** — 카테고리 CRUD (이름·색상·**설명**) — 설명은 AI 추천 정확도 향상에 사용
 
 ---
 
@@ -145,8 +160,9 @@ bookmark-note/
 │   │   ├── src/
 │   │   │   ├── lib/
 │   │   │   │   ├── supabase.ts         # Supabase 클라이언트 + 타입
-│   │   │   │   ├── claude.ts           # Claude API 자동 추천
-│   │   │   │   └── metaParser.ts       # og 메타데이터 추출
+│   │   │   │   ├── claude.ts           # Claude API 자동 추천 (system prompt + few-shot + 견고한 JSON 파싱)
+│   │   │   │   ├── jinaReader.ts       # X(트위터) URL 본문 우회 추출 (r.jina.ai)
+│   │   │   │   └── metaParser.ts       # og 메타 + 키워드 + 본문 800자 추출
 │   │   │   ├── background/
 │   │   │   │   └── service-worker.ts   # 세션 유지 (25분 주기)
 │   │   │   └── popup/

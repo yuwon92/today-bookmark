@@ -4,6 +4,7 @@ declare global {
       openExternal: (url: string) => Promise<void>
       minimize: () => Promise<void>
       close: () => Promise<void>
+      openWidget: () => Promise<void>
     }
   }
 }

@@ -1,4 +1,5 @@
 import type { Bookmark, Category } from '../lib/supabase'
+import { filterBookmarks } from '@bookmark-note/shared'
 import { BookmarkItem } from './BookmarkItem'
 
 export function BookmarkList({
@@ -23,20 +24,7 @@ export function BookmarkList({
   onSelect: (b: Bookmark) => void
 }) {
   const catMap = Object.fromEntries(categories.map((c) => [c.id, c]))
-
-  const filtered = bookmarks
-    .filter((b) => !favoritesOnly || b.is_favorite)
-    .filter((b) => {
-      if (activeTag && !b.tags.includes(activeTag)) return false
-      if (!search) return true
-      const q = search.toLowerCase()
-      return (
-        b.title.toLowerCase().includes(q) ||
-        b.url.toLowerCase().includes(q) ||
-        b.note.toLowerCase().includes(q) ||
-        b.tags.some((t) => t.toLowerCase().includes(q))
-      )
-    })
+  const filtered = filterBookmarks(bookmarks, { search, favoritesOnly, activeTag })
 
   const emptyMsg = activeTag
     ? `#${activeTag} 태그 북마크가 없습니다.`

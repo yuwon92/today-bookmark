@@ -1,0 +1,10 @@
+{
+  "name": "@bookmark-note/shared",
+  "version": "1.0.0",
+  "private": true,
+  "exports": { ".": "./src/index.ts" },
+  "devDependencies": {
+    "@supabase/supabase-js": "^2.49.0",
+    "typescript": "^5.8.3"
+  }
+}

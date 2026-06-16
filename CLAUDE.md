@@ -45,11 +45,12 @@ pnpm install            # 전체 의존성 설치
 | `apps/extension/src/popup/Popup.tsx` | 메인 UI — 탭(Save/All/Fav/Cat), 저장폼, 목록, 북마크 상세뷰, 카테고리 CRUD |
 | `apps/extension/src/popup/index.css` | 레트로 픽셀 CSS 테마 전체 |
 | `apps/extension/src/lib/supabase.ts` | Supabase 클라이언트 + 공유 타입 (Bookmark, Category) |
-| `apps/extension/src/lib/claude.ts` | Claude API 호출 — 카테고리/태그 자동 추천 |
-| `apps/extension/src/lib/metaParser.ts` | 페이지 og 메타데이터 추출 함수 (executeScript에 주입) |
+| `apps/extension/src/lib/claude.ts` | Claude API 호출 — system prompt + few-shot + 견고한 JSON 추출로 카테고리/태그 자동 추천 |
+| `apps/extension/src/lib/jinaReader.ts` | X(트위터) URL 판별 + `r.jina.ai`로 본문 우회 추출 |
+| `apps/extension/src/lib/metaParser.ts` | 페이지 메타(og) + keywords/article:tag + 본문 800자 추출 (executeScript 주입) |
 | `apps/extension/src/background/service-worker.ts` | 25분마다 Supabase 세션 갱신 |
-| `apps/extension/manifest.json` | MV3 manifest — 권한, 팝업, 아이콘 경로 |
-| `apps/extension/.env` | Supabase URL + 키 + Claude API 키 (gitignore됨) |
+| `apps/extension/manifest.json` | MV3 manifest — 권한, 팝업, 아이콘 경로 (`host_permissions`에 `r.jina.ai` 포함) |
+| `apps/extension/.env` | Supabase URL + 키 + Claude API 키 + Jina API 키 (gitignore됨) |
 
 ### 데스크탑 앱
 
@@ -103,6 +104,16 @@ main    → BrowserWindow.minimize/close
 
 - `chrome.scripting.executeScript`로 `extractPageMeta` 함수를 현재 탭에 주입
 - 함수가 외부 import 없이 완전히 독립적이어야 함 (직렬화되어 전송)
+- 추출 항목: `url / title / description / thumbnail / siteName / keywords[] / bodyExcerpt(최대 800자)`
+- 본문은 `<main>` → `<article>` → `<body>` 순서로 폴백, 공백 정규화 후 슬라이스
+
+### X(트위터) 본문 우회 — Jina Reader
+
+- X는 SPA라 `executeScript`로는 본문이 거의 안 잡힘 → `r.jina.ai/{url}` GET으로 우회
+- `jinaReader.ts`의 `isXUrl()` 로 도메인 판별 (`x.com`, `twitter.com`, `mobile.twitter.com`)
+- 호출 위치: `Popup.tsx` Save 탭의 meta 로드 `useEffect` 안에서 `extractPageMeta` 직후 `bodyExcerpt` 덮어쓰기
+- API 키 없이도 동작(무료 티어), `VITE_JINA_API_KEY` 있으면 `Authorization: Bearer ...`로 레이트 제한 해제
+- 응답은 markdown/plain text → 공백 정규화 후 1500자 슬라이스
 
 ### INSERT 시 user_id 필수
 
@@ -114,13 +125,16 @@ main    → BrowserWindow.minimize/close
 ## DB 스키마 요약
 
 ```sql
-categories (id, user_id, name, color, created_at)
+categories (id, user_id, name, color, description, created_at)
 bookmarks  (id, user_id, url, title, description, thumbnail,
             category_id, note, tags[], is_favorite, date_saved)
 ```
 
 - RLS: 각 유저는 자신의 행만 접근 가능
-- `is_favorite`: `ALTER TABLE bookmarks ADD COLUMN IF NOT EXISTS is_favorite BOOLEAN DEFAULT false;`
+- 기존 DB 마이그레이션:
+  - `ALTER TABLE bookmarks ADD COLUMN IF NOT EXISTS is_favorite BOOLEAN DEFAULT false;`
+  - `ALTER TABLE categories ADD COLUMN IF NOT EXISTS description TEXT DEFAULT '';`
+- `categories.description`: AI 추천 시 카테고리의 *범위(scope)* 를 모델에 전달하기 위한 필드. 빈 문자열이어도 동작.
 
 ---
 
@@ -204,11 +218,42 @@ pnpm desktop:dist
 
 ## Claude API 연동 (확장앱)
 
+### 기본
 - 모델: `claude-haiku-4-5-20251001` (가장 저렴, 응답 빠름)
-- 호출 시점: Save 탭에서 메타데이터 로드 완료 + categories 로드 완료 동시에
-- 브라우저 직접 호출 시 반드시 `anthropic-dangerous-direct-browser-access: true` 헤더 필요
-- API 키: `apps/extension/.env`에 `VITE_CLAUDE_API_KEY=sk-ant-...` 추가
-- 응답이 마크다운 코드블록(` ```json `)으로 감싸져 올 수 있으므로 파싱 전 제거 필요
+- 호출 시점: Save 탭에서 메타데이터 로드 완료 + categories 로드 완료 동시에 (1회만)
+- 브라우저 직접 호출이므로 반드시 `anthropic-dangerous-direct-browser-access: true` 헤더 필요
+- API 키: `apps/extension/.env`에 `VITE_CLAUDE_API_KEY=sk-ant-...` (없으면 추천만 비활성)
+
+### 호출 본문 구조
+- `max_tokens: 400`, `temperature: 0` (결정적 응답)
+- `system` 메시지에 규칙 분리 (캐시 효율 ↑)
+- `messages`: `[...few-shot, user(현재 페이지)]` 구조
+
+### 입력 데이터
+`suggestCategoryAndTags({ meta, categories, tagPool, recentExamples })`:
+- `meta`: `PageMeta` 전체 — title/url/description/siteName/keywords/bodyExcerpt
+- `categories`: `{ name, description }[]` — 카테고리 설명은 모델에 scope hint로 작용
+- `tagPool`: 사용자의 모든 태그 빈도 desc 정렬 후 상위 50개 (토큰 절약 + 재사용 유도)
+- `recentExamples`: 최근 5개 북마크 (카테고리 분류된 것만 — null 예시는 모델이 모방함)
+
+### Few-shot 형식
+각 예시는 `Categories available: A, B, C` 줄을 포함해 "선택지 → 정답" 패턴을 학습시킴.
+user에 카테고리 목록과 example bookmark, assistant에 JSON 응답.
+
+### System prompt 핵심 규칙
+- "STRONGLY prefer picking a category over null. Only return null if NONE fit."
+- "I'm not 100% sure is NOT a reason for null." — 모델의 null 편향 방지
+- 태그는 lowercase, 하이픈, max 20자, 기존 태그 풀 재사용 우선
+- 우선순위: title → bodyExcerpt → description → site → keywords
+
+### 응답 파싱 — `extractJsonObject`
+- prefill 트릭(`assistant: '{"category":'`)은 system prompt가 길어지면 깨지기 쉬워서 사용하지 않음
+- 응답 텍스트에서 첫 `{` 부터 짝맞는 `}` 까지 균형 카운팅으로 추출 (코드블록/잡설/중첩 객체 모두 처리)
+- 디버깅: `console.debug('[claude.ts] raw response:', raw)` — popup DevTools 콘솔에서 확인 가능
+
+### 흔한 회귀
+1. **카테고리만 항상 null** → few-shot에 미분류 북마크가 섞였거나 system prompt가 너무 보수적. Popup.tsx에서 `category_id` 있는 것만 필터링하고, system rule에 "prefer a category" 명시
+2. **태그/카테고리 둘 다 빈 값** → 응답 파싱 실패로 catch 진입. raw 응답을 콘솔에서 먼저 확인. JSON 형식 불일치면 `extractJsonObject` 보강
 
 ## Supabase Realtime 설정
 
@@ -229,7 +274,10 @@ pnpm desktop:dist
 
 - `.env` 파일은 gitignore됨 — 클론 후 확장앱/데스크탑 각각 생성 필요
 - 확장앱 `.env`에 `VITE_CLAUDE_API_KEY` 없으면 AI 추천 기능만 비활성화됨 (나머지 정상 동작)
+- `VITE_JINA_API_KEY`는 선택. 없어도 X 본문 추출은 무료 티어로 동작 (레이트 제한만 낮음)
+- `categories.description` 컬럼은 기존 DB에 없을 수 있음 → 추천 코드가 INSERT/UPDATE 시 description을 보내므로 마이그레이션 SQL 필수: `ALTER TABLE categories ADD COLUMN IF NOT EXISTS description TEXT DEFAULT '';`
+  - 컬럼 추가 후에도 Supabase의 PostgREST 스키마 캐시가 즉시 갱신 안 될 수 있음 → 대시보드 Settings → API → "Reload schema cache"
 - 친구 배포 시 친구 Supabase 키로 빌드 후 `dist` 폴더를 zip으로 전달 (확장앱)
 - pnpm v11 사용, `pnpm-workspace.yaml`에 `allowBuilds` 설정 필요 (esbuild, electron, app-builder-bin)
 - 데스크탑 앱 `resources/icon.png`은 256×256px 이상이어야 electron-builder가 정상 동작
-- Supabase Realtime은 대시보드에서 `bookmarks` 테이블 수동 활성화 필요 (Database → Publications)
+- Supabase Realtime은 대시보드에서 `bookmarks` / `categories` 테이블 수동 활성화 필요 (Database → Publications)

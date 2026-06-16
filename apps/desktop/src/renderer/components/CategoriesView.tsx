@@ -1,14 +1,6 @@
 import { useState } from 'react'
 import { supabase, type Category, type Bookmark } from '../lib/supabase'
-
-const PRESET_COLORS = [
-  '#C8B8FF', '#FFD6EA', '#B8E8C8', '#FFE8B8',
-  '#B8D8F8', '#F8C8B8', '#D8B8F8', '#C8D8B8',
-]
-
-function getDomain(url: string): string {
-  try { return new URL(url).hostname } catch { return url }
-}
+import { PRESET_COLORS, getDomain, insertCategory, updateCategory, deleteCategoryById } from '@bookmark-note/shared'
 
 // ── 카테고리 추가/편집 인라인 폼 ─────────────────────────
 function CategoryForm({
@@ -16,19 +8,23 @@ function CategoryForm({
   onSave,
   onCancel,
 }: {
-  initial?: { name: string; color: string }
-  onSave: (name: string, color: string) => Promise<void>
+  initial?: { name: string; color: string; description: string }
+  onSave: (name: string, color: string, description: string) => Promise<void>
   onCancel: () => void
 }) {
   const [name, setName] = useState(initial?.name ?? '')
   const [color, setColor] = useState(initial?.color ?? PRESET_COLORS[0])
+  const [description, setDescription] = useState(initial?.description ?? '')
   const [saving, setSaving] = useState(false)
 
   const handleSave = async () => {
     if (!name.trim()) return
     setSaving(true)
-    await onSave(name.trim(), color)
-    setSaving(false)
+    try {
+      await onSave(name.trim(), color, description.trim())
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -41,6 +37,15 @@ function CategoryForm({
           onKeyDown={(e) => e.key === 'Enter' && handleSave()}
           placeholder="카테고리 이름"
           autoFocus
+        />
+      </div>
+      <div style={{ marginBottom: 5 }}>
+        <input
+          className="pixel-input"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSave()}
+          placeholder="설명 (AI 추천용, 선택)"
         />
       </div>
       <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginBottom: 6 }}>
@@ -89,7 +94,7 @@ function CategorySection({
   isEditing: boolean
   onToggleExpand: () => void
   onStartEdit: () => void
-  onSaveEdit: (name: string, color: string) => Promise<void>
+  onSaveEdit: (name: string, color: string, description: string) => Promise<void>
   onCancelEdit: () => void
   onDelete: () => void
   onSelect: (b: Bookmark) => void
@@ -101,7 +106,7 @@ function CategorySection({
       {/* 헤더 */}
       {isEditing && !isUncategorized ? (
         <CategoryForm
-          initial={{ name: category!.name, color: category!.color }}
+          initial={{ name: category!.name, color: category!.color, description: category!.description ?? '' }}
           onSave={onSaveEdit}
           onCancel={onCancelEdit}
         />
@@ -237,22 +242,36 @@ export function CategoriesView({
     }
   }
 
-  const addCategory = async (name: string, color: string) => {
-    await supabase.from('categories').insert({ user_id: userId, name, color })
-    setShowAddForm(false)
-    onRefresh()
+  const addCategory = async (name: string, color: string, description: string) => {
+    try {
+      await insertCategory(supabase, userId, name, color, description)
+      setShowAddForm(false)
+      onRefresh()
+    } catch (err) {
+      alert(`카테고리 추가 실패: ${err instanceof Error ? err.message : '오류'}`)
+      throw err
+    }
   }
 
-  const saveEdit = async (id: string, name: string, color: string) => {
-    await supabase.from('categories').update({ name, color }).eq('id', id)
-    setEditingId(null)
-    onRefresh()
+  const saveEdit = async (id: string, name: string, color: string, description: string) => {
+    try {
+      await updateCategory(supabase, id, name, color, description)
+      setEditingId(null)
+      onRefresh()
+    } catch (err) {
+      alert(`카테고리 저장 실패: ${err instanceof Error ? err.message : '오류'}`)
+      throw err
+    }
   }
 
   const deleteCategory = async (id: string) => {
     if (!confirm('카테고리를 삭제하면 해당 북마크의 카테고리가 없어집니다.')) return
-    await supabase.from('categories').delete().eq('id', id)
-    onRefresh()
+    try {
+      await deleteCategoryById(supabase, id)
+      onRefresh()
+    } catch (err) {
+      alert(`카테고리 삭제 실패: ${err instanceof Error ? err.message : '오류'}`)
+    }
   }
 
   return (
@@ -290,7 +309,7 @@ export function CategoriesView({
           isEditing={editingId === cat.id}
           onToggleExpand={() => toggleExpand(cat.id)}
           onStartEdit={() => { setEditingId(cat.id); setShowAddForm(false) }}
-          onSaveEdit={(name, color) => saveEdit(cat.id, name, color)}
+          onSaveEdit={(name, color, description) => saveEdit(cat.id, name, color, description)}
           onCancelEdit={() => setEditingId(null)}
           onDelete={() => deleteCategory(cat.id)}
           onSelect={onSelect}
