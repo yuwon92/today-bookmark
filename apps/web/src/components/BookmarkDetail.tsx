@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { Bookmark, Category } from '../lib/supabase'
 import { getDomain, parseTag } from '@bookmark-note/shared'
 
@@ -17,6 +17,8 @@ export function BookmarkDetail({
   const [tags, setTags] = useState<string[]>(bookmark.tags)
   const [tagInput, setTagInput] = useState('')
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => { window.scrollTo({ top: 0 }) }, [])
 
   const domain = getDomain(bookmark.url)
   const favicon = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`
