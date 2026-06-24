@@ -1,7 +1,7 @@
 # Today Bookmark
 
 어떤 사이트든 링크를 저장하고 카테고리로 정리하는 북마크 관리 도구.  
-**크롬 확장앱** + **Electron 데스크탑 앱** 두 클라이언트가 같은 Supabase 백엔드를 공유합니다.  
+**크롬 확장앱** + **Electron 데스크탑 앱** + **웹 앱** 세 클라이언트가 같은 Supabase 백엔드를 공유합니다.  
 레트로 픽셀 OS / 파스텔 라벤더 스타일의 UI를 가집니다.
 
 ![UI Preview](apps/extension/icons/icon128.png)
@@ -30,9 +30,11 @@
 |------|------|
 | 크롬 확장앱 | Manifest V3 + React 19 + TypeScript |
 | 데스크탑 앱 | Electron 34 + React 19 + TypeScript (electron-vite) |
+| 웹 앱 | React 19 + TypeScript + Vite (Vercel 배포) |
+| 공유 패키지 | `@bookmark-note/shared` — 타입/쿼리/유틸 (pnpm workspace) |
 | 빌드 도구 | Vite + @crxjs/vite-plugin / electron-vite |
 | 패키지 배포 | electron-builder (NSIS 설치 파일) |
-| 백엔드/DB | Supabase (PostgreSQL + Auth + RLS) |
+| 백엔드/DB | Supabase (PostgreSQL + Auth + RLS + Realtime) |
 | 스타일 | Tailwind CSS v4 + 커스텀 픽셀 CSS |
 | 패키지 매니저 | pnpm (workspaces) |
 
@@ -78,6 +80,7 @@ pnpm install
 ```bash
 cp apps/extension/.env.example apps/extension/.env
 cp apps/desktop/.env.example   apps/desktop/.env
+cp apps/web/.env.example       apps/web/.env
 ```
 
 확장앱 `apps/extension/.env`:
@@ -89,7 +92,7 @@ VITE_CLAUDE_API_KEY=sk-ant-...   # 확장앱 전용, AI 추천 기능 (없으면
 VITE_JINA_API_KEY=jina_...       # 선택 — X(트위터) 본문 추출. 없어도 무료 티어로 동작
 ```
 
-데스크탑 앱 `apps/desktop/.env`:
+데스크탑 / 웹 앱 `.env` (동일):
 
 ```env
 VITE_SUPABASE_URL=https://your-project-id.supabase.co
@@ -99,6 +102,39 @@ VITE_SUPABASE_ANON_KEY=your-publishable-key
 6. Supabase Realtime 활성화 (실시간 동기화 사용 시)
    - Supabase 대시보드 → **Database → Publications**
    - `supabase_realtime` → `bookmarks`, `categories` 테이블 토글 ON
+
+---
+
+## 웹 앱
+
+### 개발 / 빌드
+
+```bash
+pnpm web:dev    
+pnpm web:build  # 빌드 → apps/web/dist/
+```
+
+### 배포 (Vercel)
+
+1. GitHub에 push 후 [vercel.com](https://vercel.com)에서 레포 연결
+2. 프로젝트 설정:
+
+   | 항목 | 값 |
+   |------|-----|
+   | Root Directory | `apps/web` |
+   | Framework Preset | Vite |
+   | Build Command | `cd ../.. && pnpm install && pnpm --filter web build` |
+   | Output Directory | `dist` |
+
+3. Environment Variables에 `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` 추가
+4. Supabase 대시보드 → **Authentication → URL Configuration**에 Vercel 도메인 추가
+
+이후 push마다 자동 재배포됩니다.
+
+### 기능
+
+데스크탑 앱과 동일한 기능을 브라우저에서 제공합니다.  
+북마크 저장은 크롬 확장앱을 사용하고, 열람/관리는 웹 앱에서 할 수 있습니다.
 
 ---
 
@@ -171,6 +207,13 @@ bookmark-note/
 │   │   ├── manifest.json
 │   │   └── icons/
 │   │
+│   ├── web/                    # 웹 앱 (Vite + React, Vercel 배포)
+│   │   ├── src/
+│   │   │   ├── App.tsx             # 메인 레이아웃 + 상태 관리
+│   │   │   ├── lib/supabase.ts     # Supabase 클라이언트
+│   │   │   └── components/         # 데스크탑 컴포넌트 기반 (Electron IPC 제거)
+│   │   └── vite.config.ts
+│   │
 │   └── desktop/                # Electron 데스크탑 앱
 │       ├── electron.vite.config.ts
 │       ├── resources/
@@ -192,6 +235,15 @@ bookmark-note/
 │                   ├── CategoriesView.tsx
 │                   ├── BottomNav.tsx
 │                   └── BookmarkTicker.tsx
+│
+├── packages/
+│   └── shared/                 # 공유 패키지 (@bookmark-note/shared)
+│       └── src/
+│           ├── types.ts            # Bookmark, Category 타입
+│           ├── queries.ts          # Supabase CRUD 함수
+│           ├── utils.ts            # getDomain, pickRandom, parseTag
+│           ├── filtering.ts        # filterBookmarks
+│           └── constants.ts        # PRESET_COLORS
 │
 ├── supabase/
 │   └── schema.sql              # DB 스키마

@@ -6,6 +6,8 @@
     "extension:build": "pnpm --filter extension build",
     "desktop:dev": "pnpm --filter desktop dev",
     "desktop:build": "pnpm --filter desktop build",
-    "desktop:dist": "pnpm --filter desktop dist"
+    "desktop:dist": "pnpm --filter desktop dist",
+    "web:dev": "pnpm --filter web dev",
+    "web:build": "pnpm --filter web build"
   }
 }
