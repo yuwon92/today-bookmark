@@ -54,7 +54,7 @@ function buildUserMessage(
   if (meta.siteName) parts.push(`- site: ${meta.siteName}`)
   if (meta.description) parts.push(`- description: ${meta.description}`)
   if (meta.keywords?.length) parts.push(`- keywords: ${meta.keywords.join(', ')}`)
-  if (meta.bodyExcerpt) parts.push(`- body: ${meta.bodyExcerpt}`)
+  if (meta.bodyExcerpt) parts.push(`- body: ${meta.bodyExcerpt.slice(0, 800)}`)
   parts.push(
     ``,
     `Reminder: choose the closest category from [${categories.map((c) => c.name).join(', ') || 'none'}]. Only return null if truly none fit.`,

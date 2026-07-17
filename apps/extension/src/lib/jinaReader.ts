@@ -19,12 +19,16 @@ export async function fetchJinaContent(url: string, maxChars = 1500): Promise<st
   }
   if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`
 
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 2500)
   try {
-    const res = await fetch(`https://r.jina.ai/${url}`, { headers })
+    const res = await fetch(`https://r.jina.ai/${url}`, { headers, signal: controller.signal })
     if (!res.ok) return ''
     const text = await res.text()
     return text.replace(/\s+/g, ' ').trim().slice(0, maxChars)
   } catch {
     return ''
+  } finally {
+    clearTimeout(timer)
   }
 }

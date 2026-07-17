@@ -580,9 +580,9 @@ function SaveTab({ user, categories, bookmarks, onSaved }: {
     }).then((suggestion) => {
       if (suggestion.category) {
         const matched = categories.find((c) => c.name === suggestion.category)
-        if (matched) setCategoryId(matched.id)
+        if (matched) setCategoryId((prev) => prev === '' ? matched.id : prev)
       }
-      if (suggestion.tags.length > 0) setTagsInput(suggestion.tags.join(', '))
+      if (suggestion.tags.length > 0) setTagsInput((prev) => prev === '' ? suggestion.tags.join(', ') : prev)
       setAiLoading(false)
     }).catch(() => {
       setAiLoading(false)
@@ -643,10 +643,14 @@ function SaveTab({ user, categories, bookmarks, onSaved }: {
 
       <div className="pixel-panel">
         <span className="pixel-panel-title">[ Classify ]</span>
+        {aiLoading && (
+          <div style={{ fontSize: 10, color: '#8C80A8', padding: '2px 4px 4px', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span className="pixel-blink">✦</span> AI 추천 중...
+          </div>
+        )}
         <div className="pixel-row">
           <label className="pixel-label">Category:</label>
-          <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="pixel-input"
-            disabled={aiLoading} style={{ opacity: aiLoading ? 0.5 : 1 }}>
+          <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="pixel-input">
             <option value="">— None —</option>
             {categories.map((cat) => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
           </select>
@@ -654,7 +658,7 @@ function SaveTab({ user, categories, bookmarks, onSaved }: {
         <div className="pixel-row">
           <label className="pixel-label">Tags: <span style={{ color: '#8C80A8' }}>(쉼표로 구분)</span></label>
           <input type="text" value={tagsInput} onChange={(e) => setTagsInput(e.target.value)} className="pixel-input"
-            placeholder="react, design, reference" disabled={aiLoading} style={{ opacity: aiLoading ? 0.5 : 1 }} />
+            placeholder="react, design, reference" />
         </div>
         <div className="pixel-row">
           <label className="pixel-label">Note:</label>
