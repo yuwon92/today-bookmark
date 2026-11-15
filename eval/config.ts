@@ -23,6 +23,8 @@ export const MODEL = 'claude-haiku-4-5-20251001'
 export const ANTHROPIC_VERSION = '2023-06-01'
 // USD / 1M tokens (Claude Haiku 4.5)
 export const PRICE_PER_MTOK = { input: 1.0, output: 5.0 }
+// Phase 7 에서 카테고리 설명 수정안을 만드는 모델 (1회 호출). 분류 자체는 계속 MODEL 로 한다.
+export const PROPOSER_MODEL = 'claude-opus-5-5'
 
 // ── 실행 ───────────────────────────────────────────────────────────────
 export const RUNS = 3

@@ -10,7 +10,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {
-  ANTHROPIC_VERSION, CONCURRENCY, MAX_RETRIES, MODEL, PRICE_PER_MTOK, RUNS, RUNS_DIR, SAMPLING, VERSION_ORDER,
+  ANTHROPIC_VERSION, CONCURRENCY, DATA_DIR, MAX_RETRIES, MODEL, PRICE_PER_MTOK, RUNS, RUNS_DIR, SAMPLING, VERSION_ORDER,
 } from '../config.ts'
 import { loadLabels, loadRaw, loadSnapshot, priorBookmarks, shuffled, type Label, type Snapshot } from '../lib/data.ts'
 import { env, requireEnv } from '../lib/env.ts'
@@ -57,10 +57,23 @@ if (noSnapshot) console.warn(`[run] 스냅샷이 없는 ${noSnapshot}개는 건�
 // --limit 은 시드 고정 셔플 후 앞에서 자른다 (매번 같은 부분집합)
 const selected = Number.isFinite(limit) ? shuffled(items, SAMPLING.seed).slice(0, limit) : items
 
+// Phase 7: v3d 는 카테고리 설명을 수정안으로 바꿔서 실행한다
+let proposedCategories = raw.categories
+if (versionNames.includes('v3d')) {
+  const p = path.join(DATA_DIR, 'descriptions_proposed.json')
+  if (!fs.existsSync(p)) {
+    console.error('[run] v3d 를 실행하려면 먼저 scripts/04_propose.ts 로 수정안을 만들어야 합니다.')
+    process.exit(1)
+  }
+  const proposed: Record<string, string> = JSON.parse(fs.readFileSync(p, 'utf8')).proposed
+  proposedCategories = raw.categories.map((c) => ({ ...c, description: proposed[c.name] ?? c.description }))
+}
+
 function buildFor(version: string, item: Item): BuiltRequest {
   const db = dbById.get(item.label.bookmark_id)
   const prior = priorBookmarks(raw, item.label.bookmark_id, db?.date_saved ?? null)
-  return VERSIONS[version].build({ snap: item.snap, categories: raw.categories, prior })
+  const categories = version === 'v3d' ? proposedCategories : raw.categories
+  return VERSIONS[version].build({ snap: item.snap, categories, prior })
 }
 
 // ── dry-run ─────────────────────────────────────────────────────────────

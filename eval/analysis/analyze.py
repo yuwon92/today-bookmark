@@ -125,6 +125,7 @@ def main() -> None:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     PRIVATE_DIR.mkdir(parents=True, exist_ok=True)
 
+    runs = runs[runs.version.isin(VERSION_ORDER)]  # 실험용 버전(v3d 등)은 analysis/phase7.py 에서 다룬다
     df = runs.merge(labels, on="bookmark_id", how="inner")
     if df.empty:
         sys.exit("runs 와 labels 에 공통 bookmark_id 가 없습니다.")

@@ -53,6 +53,9 @@ cp .env.example .env             # SUPABASE_SERVICE_ROLE_KEY 입력
 | 3. 시범 실행 | `node scripts/03_run.ts --limit 10 --runs 1` | `runs/<버전>.jsonl` |
 | 3. 전체 실행 | `node scripts/03_run.ts` | 3회 반복, 캐시된 호출은 건너뜀 |
 | 4. 분석 | `python analysis/analyze.py` | `results/` |
+| 7. 설명 수정안 생성 | `node scripts/04_propose.ts` | dev/test 분할, `data/descriptions_proposed.json` |
+| 7. 수정안으로 실행 | `node scripts/03_run.ts --versions v3d` | `runs/v3d.jsonl` |
+| 7. 전후 비교 | `python analysis/phase7.py` | `results/phase7*.{csv,md}` |
 
 ### 링크를 따로 추가하려면
 

@@ -197,6 +197,13 @@ export const VERSIONS: Record<string, Version> = {
     build: (i) => buildCurrent(i, { fewShot: 'categorized' }),
     parseOriginal: parseFinal,
   },
+  // Phase 7: v3 와 같고 카테고리 설명만 수정안(data/descriptions_proposed.json)으로 바꾼 버전.
+  // 설명 교체는 03_run.ts 가 한다.
+  v3d: {
+    name: 'v3d',
+    build: (i) => buildCurrent(i, { fewShot: 'categorized' }),
+    parseOriginal: parseFinal,
+  },
   'v3-bug': {
     name: 'v3-bug',
     build: (i) => buildCurrent(i, { fewShot: 'simulated-null' }),
