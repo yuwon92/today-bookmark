@@ -7,3 +7,7 @@ out
 *.tgz
 FRIEND_GUIDE.md
 docs/
+
+# eval: 개인 데이터/원본 응답은 커밋하지 않음
+eval/data/
+eval/runs/
