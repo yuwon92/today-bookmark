@@ -1,0 +1,19 @@
+{
+  "name": "today-bookmark-eval",
+  "private": true,
+  "type": "module",
+  "description": "AI 카테고리/태그 추천 정량 평가 하네스 (앱 코드와 독립)",
+  "engines": { "node": ">=23.6" },
+  "scripts": {
+    "check": "node scripts/00_check_sync.ts",
+    "export": "node scripts/01_export.ts",
+    "sample": "node scripts/01b_sample.ts",
+    "snapshot": "node scripts/02_snapshot.ts",
+    "run": "node scripts/03_run.ts",
+    "pilot": "node scripts/03_run.ts --limit 10 --runs 1",
+    "analyze": "python analysis/analyze.py"
+  },
+  "dependencies": {
+    "linkedom": "^0.18.5"
+  }
+}
